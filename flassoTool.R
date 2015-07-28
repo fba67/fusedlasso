@@ -66,7 +66,7 @@ feature.names <- params[seq(feature.inf+1,output.inf-1,1)]
 outPath <- params[(output.inf+1)]
 dir.create(outPath,showWarnings = F)
 graphComponents <- length(feature.names)
-source('Jonas_Debug/wrapper_functions.R')
+source('wrapper_functions.R')
 datasets <- list()
 fl.allModels <- list()
 nl.allModels <- list()
@@ -143,6 +143,10 @@ for(p in seq(1,length(inPaths),2)){
   plot.scatter.nl(partition$test$x,partition$test$y,nl.sh$cv.nl[[1]],0.2,main=paste('nl',fileName,'outliersRemoved',sep='_'),xlab='prediction')
   dev.off()
 
+  pdf(paste(outPath,'scaterPlots_entireData_',fileName,'.pdf',sep=''))
+  plot.scatter(rbind(partition$train$x,partition$test$x),c(partition$train$y,partition$test$y),fl$cv.fl,0,main=paste('fl',fileName,sep='_'),xlab='prediction')
+  plot.scatter.nl(cbind(partition$train$x,partition$test$x),c(partition$test$y,partition$test$y),nl.sh$cv.nl[[1]],0,main=paste('nl',fileName,sep='_'),xlab='prediction')
+  dev.off()
   ctr <- ctr + 1
 }
 save(fl.allModels,nl.allModels,file=paste(outPath,'/fl_nl_allModels.RData',sep=''))
@@ -152,3 +156,5 @@ if(length(datasets)>1){
   plot.nl.accuracy.allmodels(nl.allModels,datasets,datasets.names,shuffle.idx,main='lasso test set',percent=.8)
   dev.off()
 }
+print('best gamma(s)')
+print(bestgammas)

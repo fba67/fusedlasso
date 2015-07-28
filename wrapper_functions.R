@@ -1,5 +1,5 @@
 source('UtilityFunctions.R')
-maxsteps = 10000
+maxsteps = 5000
 fusedlasso.main <- function(x,y,bin.cnt,edgs,gammas){#in parallel
   ###To compute the fusedlasso for the given data
   ###Input:
@@ -18,10 +18,7 @@ fusedlasso.main <- function(x,y,bin.cnt,edgs,gammas){#in parallel
   err.df.ratio.best <- -Inf #keeps the best f-tests
   fl.best <- NULL #keeps the best fusedlasso model based on the ftest
   gr <- graph(edgs,directed = F)
-  print("rescaling the data...")
   x <- group.rescale(x,0,1,bin.cnt)
-  print("Done rescaling the data!")
-  print(range(x[,1:bin.cnt]))
   for(gamma in gammas){
     print(paste('gamma: ',gamma,sep=''))
     print('Computing flasso...')
@@ -41,19 +38,19 @@ fusedlasso.main <- function(x,y,bin.cnt,edgs,gammas){#in parallel
   return(list(cv.fl=fl.best,gamma.best=bestGamma))
 }
 
-fusedlasso.shuffling <- function(x,y,fl,shuffle.idx,trial=20,percent=.8,cor.ret=T,rss.ret=T){
+fusedlasso.shuffling.par <- function(x,y,fl,shuffle.idx,trial=20,percent=.8,cor.ret=T,rss.ret=T){
   pkgTest("doSNOW")
   pkgTest("genlasso")
   #Shuffle the data "trials" times (in parallel)
   if(is.null(shuffle.idx))
     shuffle.idx <- foreach(trial = seq(trials),.combine = 'rbind') %dopar% sample(nrow(x))
   trials <- nrow(shuffle.idx)
-  cluster = makeCluster(20,outfile="")
+  cluster = makeCluster(20)
   registerDoSNOW(cluster)
 
   gamma <- fl$gamma.best
   hist.cnt <- ncol(x)/bin.cnt
-  partition <- foreach(trial = seq(trials),.export = c("bin.cnt","data.partition","group.rescale")) %dopar% data.partition(group.rescale(x[shuffle.idx[trial,],],0,1,bin.cnt),y[shuffle.idx[trial,]],percent)
+  partition <- foreach(trial = seq(trials),.export = "data.partition") %dopar% data.partition(x[shuffle.idx[trial,],],y[shuffle.idx[trial,]],percent)
   
   best.idx <- which(fl$cv.fl$bestobj$lambda==fl$cv.fl$bestsol$lambda)        
   cv.fl <- foreach(trial = seq(trials),.packages = 'genlasso',.export = c("cv.fusedlasso","pkgTest")) %dopar%  
@@ -82,7 +79,82 @@ fusedlasso.shuffling <- function(x,y,fl,shuffle.idx,trial=20,percent=.8,cor.ret=
   return(list(cv.fl=cv.fl))
 }
 
+
+fusedlasso.shuffling <- function(x,y,fl,shuffle.idx,trial=20,percent=.8,cor.ret=T,rss.ret=T){
+  pkgTest("genlasso")
+  library(parallel)
+  print('Done loading libraries.')
+  #Shuffle the data "trials" times (in parallel)
+  if(is.null(shuffle.idx))
+    shuffle.idx <- t(sapply(seq(trials),function(i)sample(nrow(x))))
+  trials <- nrow(shuffle.idx)
+	
+  gamma <- fl$gamma.best
+  hist.cnt <- ncol(x)/bin.cnt
+  partition <- sapply(seq(trials),function(trial)data.partition(group.rescale(as.matrix(x[shuffle.idx[trial,],]),0,1,bin.cnt),y[shuffle.idx[trial,]],percent))
+  best.idx <- which(fl$cv.fl$bestobj$lambda==fl$cv.fl$bestsol$lambda)
+  print("Running lapply")
+  
+  cluster = makeCluster(20)
+  registerDoSNOW(cluster)
+  cv.fl <- lapply(seq(trials), function(trial){print(trial)
+							      cv.fusedlasso(partition[1,trial]$train$x,partition[1,trial]$train$y,method="fusedlasso",nfold=10,graph=fl$cv.fl$bestobj$call$graph,
+												                  gamma = gamma,maxsteps = fl$cv.fl$bestobj$call$maxsteps)
+})
+  stopCluster(cluster)
+  print("Done running lapply!")
+  if(cor.ret&rss.ret){
+    pred.fl <- sapply(seq(trials),function(i) predict.fl(cv.fl[[i]]$bestsol,partition[2,i]$test$x))
+    RSS.fl <- sapply(seq(trials),function(i) get.rss(pred.fl[,i],partition[2,i]$test$y))
+    correlation.fl <- sapply(seq(trials),function(i) cor(partition[2,i]$test$y,pred.fl[,i],method='spearman'))
+    return(list(cv.fl=cv.fl,rss=mean(RSS.fl),cor=mean(correlation.fl)))
+  }
+  else if(cor.ret){
+    pred.fl <- sapply(seq(trials),function(i) predict.fl(cv.fl[[i]]$bestsol,partition[2,i]$test$x))
+    correlation.fl <- sapply(seq(trials),function(i) cor(partition[2,i]$test$y,pred.fl[,i],method='spearman'))
+    return(list(cv.fl=cv.fl,cor=mean(correlation.fl)))
+  }
+  else if(rss.ret){
+    pred.fl <- sapply(seq(trials),function(i) predict.fl(cv.fl[[i]]$bestsol,partition[2,i]$test$x))
+    RSS.fl <- sapply(seq(trials),function(i) get.rss(pred.fl[,i],partition[2,i]$test$y))
+    return(list(cv.fl=cv.fl,rss=mean(RSS.fl)))
+  }
+  return(list(cv.fl=cv.fl))
+}
+
 normalasso.shuffling <- function(x,y,shuffle.idx,trial=20,percent=.8,cor.ret=T,rss.ret=T){
+  pkgTest("glmnet")
+  library(parallel)
+  #Shuffle the data "trials" times (in parallel)
+  if(is.null(shuffle.idx))
+		      shuffle.idx <- t(sapply(seq(trials),function(i)sample(nrow(x))))
+    trials <- nrow(shuffle.idx)
+
+	  hist.cnt <- ncol(x)/bin.cnt
+	  partition <- sapply(seq(trials),function(trial)data.partition(group.rescale(as.matrix(x[shuffle.idx[trial,],]),0,1,bin.cnt),y[shuffle.idx[trial,]],percent))
+	  cv.nl <- mclapply(seq(trials),function(trial)cv.glmnet(x=partition[1,trial]$train$x,y=partition[1,trial]$train$y,parallel=F),mc.cores=20)
+	  if(cor.ret&rss.ret){
+		    pred.nl <- sapply(seq(trials),function(i) predict(cv.nl[[i]],partition[2,i]$test$x))
+		    RSS.nl <- sapply(seq(trials), function(i) get.rss(pred.nl[,i],partition[2,i]$test$y))
+		    correlation.nl <- sapply(seq(trials),function(i) round(cor(partition[2,i]$test$y,pred.nl[,i],method='spearman'),2))
+		    return(list(cv.nl=cv.nl,rss=mean(RSS.nl),cor=mean(correlation.nl,na.rm=T)))
+	  }
+	  else if(cor.ret){
+	      pred.nl <- sapply(seq(trials),function(i) predict(cv.nl[[i]],partition[2,i]$test$x))
+	      correlation.nl <- sapply(seq(trials),function(i) round(cor(partition[2,i]$test$y,pred.nl[,i],method='spearman'),2))
+	      return(list(cv.nl=cv.nl,cor=mean(correlation.nl)))
+	  }
+		  else if(rss.ret){
+				      pred.nl <- sapply(seq(trials),function(i) predict(cv.nl[[i]],partition[2,i]$test$x))
+		      RSS.nl <- sapply(seq(trials), function(i) get.rss(pred.nl[,i],partition[2,i]$test$y))
+			      stopCluster(cluster)
+			      return(list(cv.nl=cv.nl,rss=mean(RSS.nl)))
+				    }
+		    return(list(cv.nl=cv.nl))
+}
+
+
+normalasso.shuffling.par <- function(x,y,shuffle.idx,trial=20,percent=.8,cor.ret=T,rss.ret=T){
   pkgTest("doSNOW")
   pkgTest("glmnet")
   #Shuffle the data "trials" times (in parallel)
@@ -90,10 +162,10 @@ normalasso.shuffling <- function(x,y,shuffle.idx,trial=20,percent=.8,cor.ret=T,r
     shuffle.idx <- foreach(trial = seq(trials),.combine = 'rbind') %dopar% sample(nrow(x))
   trials <- nrow(shuffle.idx)
 
-  cluster = makeCluster(20,outfile="")
+  cluster = makeCluster(20)
   registerDoSNOW(cluster)
   hist.cnt <- ncol(x)/bin.cnt
-  partition <- foreach(trial = seq(trials),.export = c("bin.cnt","data.partition","group.rescale")) %dopar% data.partition(group.rescale(as.matrix(x[shuffle.idx[trial,],]),0,1,bin.cnt),y[shuffle.idx[trial,]],percent)
+  partition <- foreach(trial = seq(trials),.export = "data.partition") %dopar% data.partition(as.matrix(x[shuffle.idx[trial,],]),y[shuffle.idx[trial,]],percent)
   
   cv.nl <- foreach(trial = seq(trials),.packages = "glmnet") %dopar% cv.glmnet(x=partition[[trial]]$train$x,y=partition[[trial]]$train$y,parallel=T)
   las.coefs <- foreach(trial = seq(trials),.combine = 'rbind') %dopar% coef(cv.nl[[trial]])[2:length(coef(cv.nl[[trial]]))]
@@ -245,8 +317,11 @@ plot.stability2 <- function(x,y,cv.fl,bin.cnt,trials,histone.names,shuffle.idx=N
 #}
 
 plot.scatter <- function(x,y,cv.fl,outlier.thresh,...){
-  if(as.vector(cv.fl))
-	pred <- x %*% cv.fl
+  print(dim(x))
+print(class(cv.fl))
+print(length(cv.fl))
+  if(!is.list(cv.fl))
+	  pred <- x %*% cv.fl
   else
 	  pred <- predict.fl(cv.fl$bestsol,x)
   RSS <- get.rss(pred,y)
@@ -256,7 +331,7 @@ plot.scatter <- function(x,y,cv.fl,outlier.thresh,...){
   plot(pred[-outliers],y[-outliers],ylab='measured expr.',col='blue',...)
   reg <- lm(y~pred)
   abline(reg,col='red')
-  legend('topleft',legend = paste('cor=',correlation,sep=''))
+  legend('topleft',legend = paste('cor=',correlation,'_RSS=',RSS,sep=''))
   return(list(rss=RSS,cor=correlation))
 }
 
@@ -269,7 +344,7 @@ plot.scatter.nl <- function(x,y,cv.nl,outlier.thresh,...){
   plot(pred[-outliers],y[-outliers],ylab='measured expr.',col='blue',...)
   reg <- lm(y~pred)
   abline(reg,col='red')
-  legend('topleft',legend = paste('cor=',correlation,sep=''))
+  legend('topleft',legend = paste('cor=',correlation,'_RSS=',RSS,sep=''))
   return(list(rss=RSS,cor=correlation))
 }
 accuracy.comparison <- function(x,y,fl.shuffling.obj,nl.shuffling.obj){
