@@ -18,6 +18,7 @@ fusedlasso.main <- function(x,y,bin.cnt,edgs,gammas){#in parallel
   err.df.ratio.best <- -Inf #keeps the best f-tests
   fl.best <- NULL #keeps the best fusedlasso model based on the ftest
   gr <- graph(edgs,directed = F)
+  x <- scale(x)
   x <- group.rescale(x,0,1,bin.cnt)
   for(gamma in gammas){
     print(paste('gamma: ',gamma,sep=''))

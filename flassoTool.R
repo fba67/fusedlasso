@@ -130,7 +130,7 @@ for(p in seq(1,length(inPaths),2)){
   print(fl$cv.fl$bestsol$beta)
   plot.histone.coef(stab$fl$median,bin.cnt,feature.names,main=paste(fileName,'median of trials',sep='_'),cluster_rows = F, cluster_cols = F)
   plot.histone.coef(stab$fl$mean,bin.cnt,feature.names,main=paste(fileName,'mean of trials',sep='_'),cluster_rows = F, cluster_cols = F)
-  plot.histone.coef(fl$cv.fl$bestsol$beta,bin.cnt,feature.names,main=paste(fileName,'one model',sep='_'),cluster_rows = F, cluster_cols = F)
+  plot.histone.coef(fl$cv.fl$bestsol$beta,bin.cnt,feature.names,main=paste(fileName,'one model','gamma*',bestgammas[bestGammasIdx],sep='_'),cluster_rows = F, cluster_cols = F)
   dev.off()
   print(class(stab$fl$mean)) 
   save(fl,fl.sh,stab,file=paste(outPath,'/fl_shfld_',fileName,'.RData',sep=''))
