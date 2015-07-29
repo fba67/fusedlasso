@@ -144,6 +144,8 @@ for(p in seq(1,length(inPaths),2)){
   dev.off()
 
   pdf(paste(outPath,'scaterPlots_entireData_',fileName,'.pdf',sep=''))
+  plot.scatter(rbind(partition$train$x,partition$test$x),c(partition$train$y,partition$test$y),stab$fl$median,0,main=paste('fl',fileName,'median',sep='_'),xlab='prediction')
+  plot.scatter(rbind(partition$train$x,partition$test$x),c(partition$train$y,partition$test$y),stab$fl$mean,0,main=paste('fl',fileName,'mean',sep='_'),xlab='prediction')
   plot.scatter(rbind(partition$train$x,partition$test$x),c(partition$train$y,partition$test$y),fl$cv.fl,0,main=paste('fl',fileName,sep='_'),xlab='prediction')
   plot.scatter.nl(cbind(partition$train$x,partition$test$x),c(partition$test$y,partition$test$y),nl.sh$cv.nl[[1]],0,main=paste('nl',fileName,sep='_'),xlab='prediction')
   dev.off()
