@@ -332,7 +332,7 @@ print(length(cv.fl))
   plot(pred[-outliers],y[-outliers],ylab='measured expr.',col='blue',...)
   reg <- lm(y~pred)
   #abline(reg,col='red')
-  legend('topleft',legend = paste('cor=',correlation,'_RSS=',round(RSS,2),sep=''))
+  legend('topleft',legend = paste('cor=',correlation,'_RMSE=',round(RSS,2),sep=''))
   return(list(rss=RSS,cor=correlation))
 }
 
@@ -345,7 +345,7 @@ plot.scatter.nl <- function(x,y,cv.nl,outlier.thresh,...){
   plot(pred[-outliers],y[-outliers],ylab='measured expr.',col='blue',...)
   reg <- lm(y~pred)
   #abline(reg,col='red')
-  legend('topleft',legend = paste('cor=',correlation,'_RSS=',round(RSS,2),sep=''))
+  legend('topleft',legend = paste('cor=',correlation,'_RMSE=',round(RSS,2),sep=''))
   return(list(rss=RSS,cor=correlation))
 }
 accuracy.comparison <- function(x,y,fl.shuffling.obj,nl.shuffling.obj){
