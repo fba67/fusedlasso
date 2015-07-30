@@ -109,7 +109,6 @@ for(p in seq(1,length(inPaths),2)){
   fl <- fusedlasso.main(partition$train$x,partition$train$y,bin.cnt,edgs,seq(gamma$start,gamma$end,gamma$step))
   
   bestgammas[bestGammasIdx] <- fl$gamma.best
-  bestGammasIdx <- bestGammasIdx + 1
   if(all(fl$cv.fl$bestsol$beta==0)){
     print(bestgammas)
     stop('The trained Fussed lasso model contains all the coefficients as zero... The models is not trained properly (needs more parameter tuning, maybe!)')
@@ -147,9 +146,10 @@ for(p in seq(1,length(inPaths),2)){
   plot.scatter(rbind(partition$train$x,partition$test$x),c(partition$train$y,partition$test$y),stab$fl$median,0,main=paste('fl',fileName,'median',sep='_'),xlab='prediction')
   plot.scatter(rbind(partition$train$x,partition$test$x),c(partition$train$y,partition$test$y),stab$fl$mean,0,main=paste('fl',fileName,'mean',sep='_'),xlab='prediction')
   plot.scatter(rbind(partition$train$x,partition$test$x),c(partition$train$y,partition$test$y),fl$cv.fl,0,main=paste('fl',fileName,sep='_'),xlab='prediction')
-  plot.scatter.nl(cbind(partition$train$x,partition$test$x),c(partition$test$y,partition$test$y),nl.sh$cv.nl[[1]],0,main=paste('nl',fileName,sep='_'),xlab='prediction')
+  plot.scatter.nl(rbind(partition$train$x,partition$test$x),c(partition$test$y,partition$test$y),nl.sh$cv.nl[[1]],0,main=paste('nl',fileName,sep='_'),xlab='prediction')
   dev.off()
   ctr <- ctr + 1
+  bestGammasIdx <- bestGammasIdx + 1
 }
 save(fl.allModels,nl.allModels,file=paste(outPath,'/fl_nl_allModels.RData',sep=''))
 if(length(datasets)>1){
