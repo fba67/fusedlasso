@@ -98,7 +98,7 @@ predict.fl <- function(cv.obj,x){
 
 get.rss <- function(pred,y){
   n <- length(y)
-  return(1/n*(sqrt(sum((pred-y)^2))))
+  return((sqrt(1/n*sum((pred-y)^2))))
 }
 
 cv.fusedlasso <- function(x,y,method=c("fusedlasso","fusedlasso1d","fusedlasso2d"),nfold=10,...){
