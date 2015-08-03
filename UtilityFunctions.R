@@ -33,13 +33,15 @@ rescale <- function(x,a,b,featureTypes){
   return(stdr)
 }
 
-group.rescale <- function(x,a,b,bin.cnt){
+group.rescale <- function(x,a,b,bin.cnt,group.min=NULL,group.max=NULL){
   x.rescaled <- matrix(NA,nrow=nrow(x),ncol=ncol(x))
   groups.cnt <- ncol(x)/bin.cnt
   for(i in seq(groups.cnt)){
     group <- x[,seq((i-1)*bin.cnt+1,i*bin.cnt,1)]
-    group.min <- min(min(group))
-    group.max <- max(max(group))
+    if(is.null(group.min) && is.null(group.max)){
+      group.min <- min(min(group))
+      group.max <- max(max(group))
+	}
     #x.rescaled[,seq((i-1)*bin.cnt+1,i*bin.cnt,1)] <- ((group-t(replicate(n=nrow(group),group.min)))*(b-a)/(group.max-group.min)+a)
     x.rescaled[,seq((i-1)*bin.cnt+1,i*bin.cnt,1)] <- ((group-(matrix(group.min,nrow=nrow(group),ncol=ncol(group))))*(b-a)/(group.max-group.min)+a)
     
@@ -101,11 +103,12 @@ get.rss <- function(pred,y){
   return((sqrt(1/n*sum((pred-y)^2))))
 }
 
-cv.fusedlasso <- function(x,y,method=c("fusedlasso","fusedlasso1d","fusedlasso2d"),nfold=10,...){
+cv.fusedlasso <- function(x,y,method=c("fusedlasso","fusedlasso1d","fusedlasso2d"),nfold=10,edges,...){
   pkgTest("genlasso")
   pkgTest("foreach")
   n <- nrow(x)
   p <- ncol(x)
+  x <- group.rescale(x,0,1,bin.cnt)
   foldsz <- floor(n/nfold)
   if(foldsz<2){
     print(paste('Number of fold for CV (',nfold,') is too large with respect to the training size... Setting it to 2',sep=''))
@@ -115,11 +118,15 @@ cv.fusedlasso <- function(x,y,method=c("fusedlasso","fusedlasso1d","fusedlasso2d
   outidx <- foreach (i=seq(nfold)) %dopar% seq(((i-1)*foldsz + 1),i*foldsz,1)
   train <- foreach (i=seq(nfold)) %dopar% list(x=x[-outidx[[i]],],y=y[-outidx[[i]]])
   validation <- foreach (i=seq(nfold)) %dopar% list(x=as.matrix(x[outidx[[i]],]),y=y[outidx[[i]]])
-  cv.fl <- foreach (i=seq(nfold),.packages = "genlasso") %dopar% do.call(method[1],list(X=train[[i]]$x,y=train[[i]]$y,...))
+  edges <- edges + 1
+  edges <- c(1,1,edges)
+#  if(is.null(graph))
+    gr <- graph(edges,directed = F)
+  cv.fl <- foreach (i=seq(nfold),.packages = "genlasso") %dopar% do.call(method[1],list(X=cbind(1,train[[i]]$x),y=train[[i]]$y,graph=gr,...))
   best <- Inf
   ctr <- 1
   for(fl in cv.fl){
-    predictions <- sapply(1:ncol(fl$fit),function(i) return(as.matrix(validation[[ctr]]$x) %*% fl$beta[,i]))
+    predictions <- sapply(1:ncol(fl$fit),function(i) return(as.matrix(cbind(1,validation[[ctr]]$x)) %*% fl$beta[,i]))
     #correlations <- sapply(1:ncol(fl$fit),function(i) return(cor(predictions[,i],validation[[ctr]]$y,'spearman')))
     mses <- sapply(1:ncol(fl$fit),function(i) return(1/length(predictions[,i])*sum((predictions[,i]-as.matrix(validation[[ctr]]$y))^2)))
     best.idx <- which.min(mses)

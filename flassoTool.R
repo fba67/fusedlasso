@@ -1,3 +1,4 @@
+info <- vector(mode="character",length=3)
 args <- commandArgs(trailingOnly = T)
 #options(warn = -1)
 a <- length(args)
@@ -70,7 +71,7 @@ source('wrapper_functions.R')
 datasets <- list()
 fl.allModels <- list()
 nl.allModels <- list()
-trials <- 10 
+trials <- 10
 bestgammas <-vector(mode='numeric',length=length(inPaths)/2)
 bestGammasIdx <- 1
 ctr <- 1
@@ -82,18 +83,13 @@ for(p in seq(1,length(inPaths),2)){
     datasets.names <- c(datasets.names,fileName)
   print(paste('Reading ',fileName,'...',sep=''))
   data.x <- log2(as.matrix(read.table(inPaths[p],header = F))+1)
-  print(class(data.x))
-  print(length(data.x))
   
   #data.x <- data.x
   data.y <- as.numeric(readLines(inPaths[(p+1)],))#[1:nrow(data.x)])
-  print(data.y[1:20])
   data.y <- log2(as.numeric(readLines(inPaths[(p+1)],))+1)#[1:nrow(data.x)])
-  print(data.y[1:20])
   print(class(data.y))
   print(paste('Done reading ',fileName,'...',sep=''))
   bin.cnt <- ncol(data.x)/graphComponents
-  print(c(bin.cnt,graphComponents,ncol(data.x)))
   edgs <- NULL
   for(i in 1:graphComponents)
   {
@@ -115,8 +111,8 @@ for(p in seq(1,length(inPaths),2)){
   }
   print(bestgammas)
   print('Starting shuffling...')
-  nl.sh <- normalasso.shuffling(data.x,data.y,shuffle.idx,trial=trials)#,cor.ret=T,rss.ret=T
-  fl.sh <- fusedlasso.shuffling(data.x,data.y,fl,shuffle.idx,trial=trials,percent=.8)
+  nl.sh <- normalasso.shuffling(data.x,data.y,bin.cnt,shuffle.idx,trial=trials)#,cor.ret=T,rss.ret=T
+  fl.sh <- fusedlasso.shuffling(data.x,data.y,fl,bin.cnt,shuffle.idx,trial=trials,percent=.8)
   print('Done shuffling.')
   fl.allModels[[ctr]] <- fl.sh
   nl.allModels[[ctr]] <- nl.sh
@@ -125,6 +121,7 @@ for(p in seq(1,length(inPaths),2)){
   stab <- plot.stability(fl.sh,nl.sh,bin.cnt,feature.names)
   dev.off()
   
+  save(fl,fl.sh,stab,file=paste(outPath,'/fl_shfld_',fileName,'.RData',sep=''))
   pdf(paste(outPath,'fusedLasso_coefs_heatmap',fileName,'.pdf',sep=''))
   print(fl$cv.fl$bestsol$beta)
   plot.histone.coef(stab$fl$median,bin.cnt,feature.names,main=paste(fileName,'median of trials',sep='_'),cluster_rows = F, cluster_cols = F)
@@ -132,25 +129,28 @@ for(p in seq(1,length(inPaths),2)){
   plot.histone.coef(fl$cv.fl$bestsol$beta,bin.cnt,feature.names,main=paste(fileName,'one model','gamma*',bestgammas[bestGammasIdx],sep='_'),cluster_rows = F, cluster_cols = F)
   dev.off()
   print(class(stab$fl$mean)) 
-  save(fl,fl.sh,stab,file=paste(outPath,'/fl_shfld_',fileName,'.RData',sep=''))
   pdf(paste(outPath,'scaterPlots_test_',fileName,'.pdf',sep=''))
-  plot.scatter(partition$test$x,partition$test$y,fl$cv.fl,0,main=paste('fl',fileName,sep='_'),xlab='prediction')
-  plot.scatter(partition$test$x,partition$test$y,stab$fl$median,0,main=paste('fl',fileName,'median',sep='_'),xlab='prediction')
-  plot.scatter(partition$test$x,partition$test$y,stab$fl$mean,0,main=paste('fl',fileName,'mean',sep='_'),xlab='prediction')
-  plot.scatter(partition$test$x,partition$test$y,fl$cv.fl,0.2,main=paste('fl',fileName,'outliersRemoved',sep='_'),xlab='prediction')
-  plot.scatter.nl(partition$test$x,partition$test$y,nl.sh$cv.nl[[1]],0,main=paste('nl',fileName,sep='_'),xlab='prediction')
-  plot.scatter.nl(partition$test$x,partition$test$y,nl.sh$cv.nl[[1]],0.2,main=paste('nl',fileName,'outliersRemoved',sep='_'),xlab='prediction')
+  plot.scatter(group.rescale(partition$test$x,0,1,bin.cnt,min(min(partition$train$x)),max(max(partition$train$x))),partition$test$y,fl$cv.fl,0,main=paste('fl',fileName,sep='_'),xlab='prediction')
+  plot.scatter(group.rescale(partition$test$x,0,1,bin.cnt,min(min(partition$train$x)),max(max(partition$train$x))),partition$test$y,stab$fl$median,0,main=paste('fl',fileName,'median',sep='_'),xlab='prediction')
+  plot.scatter(group.rescale(partition$test$x,0,1,bin.cnt,min(min(partition$train$x)),max(max(partition$train$x))),partition$test$y,stab$fl$mean,0,main=paste('fl',fileName,'mean',sep='_'),xlab='prediction')
+  plot.scatter(group.rescale(partition$test$x,0,1,bin.cnt,min(min(partition$train$x)),max(max(partition$train$x))),partition$test$y,fl$cv.fl,0.2,main=paste('fl',fileName,'outliersRemoved',sep='_'),xlab='prediction')
+  plot.scatter.nl(group.rescale(partition$test$x,0,1,bin.cnt,min(min(partition$train$x)),max(max(partition$train$x))),partition$test$y,nl.sh$cv.nl[[1]],0,main=paste('nl',fileName,sep='_'),xlab='prediction')
+  plot.scatter.nl(group.rescale(partition$test$x,0,1,bin.cnt,min(min(partition$train$x)),max(max(partition$train$x))),partition$test$y,nl.sh$cv.nl[[1]],0.2,main=paste('nl',fileName,'outliersRemoved',sep='_'),xlab='prediction')
   dev.off()
 
   pdf(paste(outPath,'scaterPlots_entireData_',fileName,'.pdf',sep=''))
-  plot.scatter(rbind(partition$train$x,partition$test$x),c(partition$train$y,partition$test$y),stab$fl$median,0,main=paste('fl',fileName,'median',sep='_'),xlab='prediction')
-  plot.scatter(rbind(partition$train$x,partition$test$x),c(partition$train$y,partition$test$y),stab$fl$mean,0,main=paste('fl',fileName,'mean',sep='_'),xlab='prediction')
-  plot.scatter(rbind(partition$train$x,partition$test$x),c(partition$train$y,partition$test$y),fl$cv.fl,0,main=paste('fl',fileName,sep='_'),xlab='prediction')
-  plot.scatter.nl(rbind(partition$train$x,partition$test$x),c(partition$test$y,partition$test$y),nl.sh$cv.nl[[1]],0,main=paste('nl',fileName,sep='_'),xlab='prediction')
+  plot.scatter(group.rescale(rbind(partition$train$x,partition$test$x),0,1,bin.cnt,min(min(partition$train$x)),max(max(partition$train$x))),c(partition$train$y,partition$test$y),stab$fl$median,0,main=paste('fl',fileName,'median',sep='_'),xlab='prediction')
+  plot.scatter(group.rescale(rbind(partition$train$x,0,1,bin.cnt,min(min(partition$train$x)),max(max(partition$train$x))),partition$test$x),c(partition$train$y,partition$test$y),stab$fl$mean,0,main=paste('fl',fileName,'mean',sep='_'),xlab='prediction')
+  plot.scatter(group.rescale(rbind(partition$train$x,partition$test$x),0,1,bin.cnt,min(min(partition$train$x)),max(max(partition$train$x))),c(partition$train$y,partition$test$y),fl$cv.fl,0,main=paste('fl',fileName,sep='_'),xlab='prediction')
+  plot.scatter.nl(group.rescale(rbind(partition$train$x,partition$test$x),0,1,bin.cnt,min(min(partition$train$x)),max(max(partition$train$x))),c(partition$test$y,partition$test$y),nl.sh$cv.nl[[1]],0,main=paste('nl',fileName,sep='_'),xlab='prediction')
   dev.off()
   ctr <- ctr + 1
   bestGammasIdx <- bestGammasIdx + 1
 }
+info[1] <- paste('best gamma(s)',paste(bestgammas,collapse='\t'))
+info[2] <- paste('median of fl',paste(stab$fl$median,collapse="\t"))
+info[3] <- paste('median of nl',paste(stab$nl$median,collapse="\t"))
+writeLines(text=as.character(info),paste(outPath,'/details.txt',sep=''))
 save(fl.allModels,nl.allModels,file=paste(outPath,'/fl_nl_allModels.RData',sep=''))
 if(length(datasets)>1){
   pdf(paste(outPath,'/cross_models.pdf',sep=''))

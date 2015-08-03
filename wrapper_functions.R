@@ -17,13 +17,13 @@ fusedlasso.main <- function(x,y,bin.cnt,edgs,gammas){#in parallel
   hist.cnt <- ceiling(ncol(x)/bin.cnt) #the No of histone modifications
   err.df.ratio.best <- -Inf #keeps the best f-tests
   fl.best <- NULL #keeps the best fusedlasso model based on the ftest
-  gr <- graph(edgs,directed = F)
-  x <- scale(x)
-  x <- group.rescale(x,0,1,bin.cnt)
+#  gr <- graph(edgs,directed = F)
+#  x <- scale(x)
+  #x <- group.rescale(x,0,1,bin.cnt)
   for(gamma in gammas){
     print(paste('gamma: ',gamma,sep=''))
     print('Computing flasso...')
-    cv.fl <- cv.fusedlasso(x,y,method="fusedlasso",nfold=10,graph=gr,gamma=gamma,maxsteps = maxsteps)
+    cv.fl <- cv.fusedlasso(x,y,method="fusedlasso",nfold=10,edges=edgs,gamma=gamma,maxsteps = maxsteps)
     print('Done computing flasso')
     
     df <- ncol(x) - cv.fl$bestsol$df
@@ -39,7 +39,7 @@ fusedlasso.main <- function(x,y,bin.cnt,edgs,gammas){#in parallel
   return(list(cv.fl=fl.best,gamma.best=bestGamma))
 }
 
-fusedlasso.shuffling.par <- function(x,y,fl,shuffle.idx,trial=20,percent=.8,cor.ret=T,rss.ret=T){
+fusedlasso.shuffling.par <- function(x,y,fl,shuffle.idx,bin.cnt,trial=20,percent=.8,cor.ret=T,rss.ret=T){
   pkgTest("doSNOW")
   pkgTest("genlasso")
   #Shuffle the data "trials" times (in parallel)
@@ -55,7 +55,7 @@ fusedlasso.shuffling.par <- function(x,y,fl,shuffle.idx,trial=20,percent=.8,cor.
   
   best.idx <- which(fl$cv.fl$bestobj$lambda==fl$cv.fl$bestsol$lambda)        
   cv.fl <- foreach(trial = seq(trials),.packages = 'genlasso',.export = c("cv.fusedlasso","pkgTest")) %dopar%  
-    cv.fusedlasso(partition[[trial]]$train$x,partition[[trial]]$train$y,method="fusedlasso",nfold=10,graph=fl$cv.fl$bestobj$call$graph,
+    cv.fusedlasso(partition[[trial]]$train$x,partition[[trial]]$train$y,method="fusedlasso",edges=edgs,nfold=10,
                   gamma = gamma,maxsteps = fl$cv.fl$bestobj$call$maxsteps)
   if(cor.ret&rss.ret){
     pred.fl <- foreach(i=seq(trials),.export = "predict.fl") %dopar% predict.fl(cv.fl[[i]]$bestsol,partition[[i]]$test$x)
@@ -81,8 +81,9 @@ fusedlasso.shuffling.par <- function(x,y,fl,shuffle.idx,trial=20,percent=.8,cor.
 }
 
 
-fusedlasso.shuffling <- function(x,y,fl,shuffle.idx,trial=20,percent=.8,cor.ret=T,rss.ret=T){
+fusedlasso.shuffling <- function(x,y,fl,bin.cnt,shuffle.idx,trial=20,percent=.8,cor.ret=T,rss.ret=T){
   pkgTest("genlasso")
+  print(bin.cnt)
   library(parallel)
   print('Done loading libraries.')
   #Shuffle the data "trials" times (in parallel)
@@ -92,50 +93,54 @@ fusedlasso.shuffling <- function(x,y,fl,shuffle.idx,trial=20,percent=.8,cor.ret=
 	
   gamma <- fl$gamma.best
   hist.cnt <- ncol(x)/bin.cnt
-  partition <- sapply(seq(trials),function(trial)data.partition(group.rescale(as.matrix(x[shuffle.idx[trial,],]),0,1,bin.cnt),y[shuffle.idx[trial,]],percent))
+  partition <- sapply(seq(trials),function(trial)data.partition(as.matrix(x[shuffle.idx[trial,],]),y[shuffle.idx[trial,]],percent))
   best.idx <- which(fl$cv.fl$bestobj$lambda==fl$cv.fl$bestsol$lambda)
   print("Running lapply")
   
   cluster = makeCluster(20)
   registerDoSNOW(cluster)
   cv.fl <- lapply(seq(trials), function(trial){print(trial)
-							      cv.fusedlasso(partition[1,trial]$train$x,partition[1,trial]$train$y,method="fusedlasso",nfold=10,graph=fl$cv.fl$bestobj$call$graph,
+							      cv.fusedlasso(partition[1,trial]$train$x,partition[1,trial]$train$y,method="fusedlasso",edges=edgs,nfold=10,
 												                  gamma = gamma,maxsteps = fl$cv.fl$bestobj$call$maxsteps)
 })
   stopCluster(cluster)
   print("Done running lapply!")
   if(cor.ret&rss.ret){
-    pred.fl <- sapply(seq(trials),function(i) predict.fl(cv.fl[[i]]$bestsol,partition[2,i]$test$x))
+    pred.fl <- sapply(seq(trials),function(i) predict.fl(cv.fl[[i]]$bestsol,cbind(1,group.rescale(partition[2,i]$test$x,0,1,bin.cnt,min(min(partition[1,trial]$train$x)),max(max(partition[1,trial]$train$x))))))
     RSS.fl <- sapply(seq(trials),function(i) get.rss(pred.fl[,i],partition[2,i]$test$y))
     correlation.fl <- sapply(seq(trials),function(i) cor(partition[2,i]$test$y,pred.fl[,i],method='spearman'))
     return(list(cv.fl=cv.fl,rss=mean(RSS.fl),cor=mean(correlation.fl)))
-  }
+  }##The rest of the cases must also be corrected for the group.rescaling
   else if(cor.ret){
-    pred.fl <- sapply(seq(trials),function(i) predict.fl(cv.fl[[i]]$bestsol,partition[2,i]$test$x))
+    pred.fl <- sapply(seq(trials),function(i) predict.fl(cv.fl[[i]]$bestsol,cbind(1,partition[2,i]$test$x)))
     correlation.fl <- sapply(seq(trials),function(i) cor(partition[2,i]$test$y,pred.fl[,i],method='spearman'))
     return(list(cv.fl=cv.fl,cor=mean(correlation.fl)))
   }
   else if(rss.ret){
-    pred.fl <- sapply(seq(trials),function(i) predict.fl(cv.fl[[i]]$bestsol,partition[2,i]$test$x))
+    pred.fl <- sapply(seq(trials),function(i) predict.fl(cv.fl[[i]]$bestsol,cbind(1,partition[2,i]$test$x)))
     RSS.fl <- sapply(seq(trials),function(i) get.rss(pred.fl[,i],partition[2,i]$test$y))
     return(list(cv.fl=cv.fl,rss=mean(RSS.fl)))
   }
   return(list(cv.fl=cv.fl))
 }
 
-normalasso.shuffling <- function(x,y,shuffle.idx,trial=20,percent=.8,cor.ret=T,rss.ret=T){
+normalasso.shuffling <- function(x,y,bin.cnt,shuffle.idx,trial=20,percent=.8,cor.ret=T,rss.ret=T){
   pkgTest("glmnet")
   library(parallel)
   #Shuffle the data "trials" times (in parallel)
   if(is.null(shuffle.idx))
 		      shuffle.idx <- t(sapply(seq(trials),function(i)sample(nrow(x))))
     trials <- nrow(shuffle.idx)
-
+print(is.null(x))
 	  hist.cnt <- ncol(x)/bin.cnt
-	  partition <- sapply(seq(trials),function(trial)data.partition(group.rescale(as.matrix(x[shuffle.idx[trial,],]),0,1,bin.cnt),y[shuffle.idx[trial,]],percent))
-	  cv.nl <- mclapply(seq(trials),function(trial)cv.glmnet(x=partition[1,trial]$train$x,y=partition[1,trial]$train$y,parallel=F),mc.cores=20)
+	  partition <- sapply(seq(trials),function(trial)data.partition(as.matrix(x[shuffle.idx[trial,],]),y[shuffle.idx[trial,]],percent))
+	  print('after partiotioning')
+	  cv.nl <- mclapply(seq(trials),function(trial)cv.glmnet(x=group.rescale(partition[1,trial]$train$x,0,1,bin.cnt),y=partition[1,trial]$train$y,parallel=F),mc.cores=20)
+	  print('after mclapply')
 	  if(cor.ret&rss.ret){
-		    pred.nl <- sapply(seq(trials),function(i) predict(cv.nl[[i]],partition[2,i]$test$x))
+		    pred.nl <- sapply(seq(trials),function(i){x.rescaled <- group.rescale(partition[2,i]$test$x,0,1,bin.cnt,group.min=min(min(partition[1,trial]$train$x)),group.max=max(max(partition[1,trial]$train$x)));print(x.rescaled[1:10,1:5]) ;predict(cv.nl[[i]],x.rescaled)})
+	  ##The rest of the cases must also be corrected for the group.rescaling
+	  print('after pred.nl')
 		    RSS.nl <- sapply(seq(trials), function(i) get.rss(pred.nl[,i],partition[2,i]$test$y))
 		    correlation.nl <- sapply(seq(trials),function(i) round(cor(partition[2,i]$test$y,pred.nl[,i],method='spearman'),2))
 		    return(list(cv.nl=cv.nl,rss=mean(RSS.nl),cor=mean(correlation.nl,na.rm=T)))
@@ -168,10 +173,10 @@ normalasso.shuffling.par <- function(x,y,shuffle.idx,trial=20,percent=.8,cor.ret
   hist.cnt <- ncol(x)/bin.cnt
   partition <- foreach(trial = seq(trials),.export = "data.partition") %dopar% data.partition(as.matrix(x[shuffle.idx[trial,],]),y[shuffle.idx[trial,]],percent)
   
-  cv.nl <- foreach(trial = seq(trials),.packages = "glmnet") %dopar% cv.glmnet(x=partition[[trial]]$train$x,y=partition[[trial]]$train$y,parallel=T)
+  cv.nl <- foreach(trial = seq(trials),.packages = "glmnet") %dopar% cv.glmnet(x=group.rescale(partition[[trial]]$train$x,0,1,bin.cnt),y=partition[[trial]]$train$y,parallel=T)
   las.coefs <- foreach(trial = seq(trials),.combine = 'rbind') %dopar% coef(cv.nl[[trial]])[2:length(coef(cv.nl[[trial]]))]
   if(cor.ret&rss.ret){
-    pred.nl <- foreach(i = seq(trials)) %dopar% predict(cv.nl[[i]],partition[[i]]$test$x)
+    pred.nl <- foreach(i = seq(trials)) %dopar% predict(cv.nl[[i]],group.rescale(partition[[i]]$test$x,0,1,bin.cnt,min(min(partition[[trial]]$train$x)),max(max(partition[[trial]]$train$x))))
     RSS.nl <- foreach(i=seq(trials),.export = "get.rss",.combine = 'c') %dopar% get.rss(pred.nl[[i]],partition[[i]]$test$y)
     correlation.nl <- foreach(i=seq(trials),.combine = 'c') %dopar% round(cor(partition[[i]]$test$y,pred.nl[[i]],method='spearman'),2)
     stopCluster(cluster)
@@ -204,6 +209,7 @@ plot.histone.coef <- function(beta,bin.cnt,histone.name,...){
     if(!is.null(beta$beta))
       beta <- beta$beta
   else stop("The beta variable must either be a list containing an element named beta or a numeric vector of beta coefficients of the regressioni model!")
+  beta <- beta[2:length(beta)] #excluding intercept
   h <- length(histone.name)
   histones <- beta[seq(1,bin.cnt,1)]
   for(i in 2:h)
@@ -236,9 +242,15 @@ plot.histone.coef <- function(beta,bin.cnt,histone.name,...){
 plot.stability <- function(fl.shuffling.obj,nl.shuffling.obj,bin.cnt,histone.names){
   trials <- min(length(fl.shuffling.obj),length(nl.shuffling.obj))
   hist.cnt <- length(histone.names)
-  las.coefs <- foreach(trial = seq(trials),.combine = 'rbind') %do% coef(nl.shuffling.obj$cv.nl[[trial]])[2:length(coef(nl.shuffling.obj$cv.nl[[trial]]))]
-  fl.coefs <- foreach(trial = seq(trials),.combine = 'rbind') %do% fl.shuffling.obj$cv.fl[[trial]]$bestsol$beta
+  
+  las.coefs.fullBeta <- foreach(trial = seq(trials),.combine = 'rbind') %do% as.numeric(coef(nl.shuffling.obj$cv.nl[[trial]]))
+  fl.coefs.fullBeta <- foreach(trial = seq(trials),.combine = 'rbind') %do% fl.shuffling.obj$cv.fl[[trial]]$bestsol$beta
+  
+  las.coefs <- foreach(trial = seq(trials),.combine = 'rbind') %do% as.numeric(coef(nl.shuffling.obj$cv.nl[[trial]]))[2:length(coef(nl.shuffling.obj$cv.nl[[trial]]))]
+  fl.coefs <- foreach(trial = seq(trials),.combine = 'rbind') %do% fl.shuffling.obj$cv.fl[[trial]]$bestsol$beta[2:length(fl.shuffling.obj$cv.fl[[trial]]$bestsol$beta)]
   x <- seq(-(floor(bin.cnt)/2-1),floor(bin.cnt)/2,1)
+  print(dim(las.coefs))
+  print(dim(fl.coefs))
   par(mfrow=c(3,2))
   for(i in seq(hist.cnt))
   {
@@ -253,8 +265,8 @@ plot.stability <- function(fl.shuffling.obj,nl.shuffling.obj,bin.cnt,histone.nam
       boxplot(las.coefs[,histone.idx],names=x,main=paste('nl',histone.names[i],sep='_'),col='blue',ylim = y.lim,xlab='features')
     }
   }
-  return(list(fl=list(var=apply(fl.coefs,2,FUN=var),mean=apply(fl.coefs,2,FUN=mean),median=apply(fl.coefs,2,FUN=median)),
-              nl=list(var=apply(las.coefs,2,FUN=var),mean=apply(las.coefs,2,FUN=mean),median=apply(las.coefs,2,FUN=median))))
+  return(list(fl=list(var=apply(fl.coefs.fullBeta,2,FUN=var),mean=apply(fl.coefs.fullBeta,2,FUN=mean),median=apply(fl.coefs.fullBeta,2,FUN=median)),
+              nl=list(var=apply(las.coefs.fullBeta,2,FUN=var),mean=apply(las.coefs.fullBeta,2,FUN=mean),median=apply(las.coefs.fullBeta,2,FUN=median))))
 }
 
 plot.stability2 <- function(x,y,cv.fl,bin.cnt,trials,histone.names,shuffle.idx=NULL){
@@ -280,7 +292,7 @@ plot.stability2 <- function(x,y,cv.fl,bin.cnt,trials,histone.names,shuffle.idx=N
   las.coefs <- foreach(trial = seq(trials),.combine = 'rbind') %dopar% coef(train.glmnet[[trial]])[2:length(coef(train.glmnet[[trial]]))]
   best.idx <- which(cv.fl$cv.fl$bestobj$lambda==cv.fl$cv.fl$bestsol$lambda)        
   
-  fl <- foreach(trial = seq(trials),.packages = 'genlasso',.export = c("cv.fusedlasso","pkgTest")) %dopar%  cv.fusedlasso(shuffle[[trial]]$x,shuffle[[trial]]$y,method="fusedlasso",nfold=10,graph=cv.fl$cv.fl$bestobj$call$graph,
+  fl <- foreach(trial = seq(trials),.packages = 'genlasso',.export = c("cv.fusedlasso","pkgTest")) %dopar%  cv.fusedlasso(shuffle[[trial]]$x,shuffle[[trial]]$y,method="fusedlasso",edges=edgs,nfold=10,
                                                                                    gamma = gamma,maxsteps = cv.fl$cv.fl$bestobj$call$maxsteps)$bestobj
 
   fl.bestsol <- foreach(trial = seq(trials)) %dopar% list(lambda=fl[[trial]]$lambda[best.idx[1]],beta=fl[[trial]]$beta[,best.idx[1]])
@@ -319,8 +331,9 @@ plot.stability2 <- function(x,y,cv.fl,bin.cnt,trials,histone.names,shuffle.idx=N
 
 plot.scatter <- function(x,y,cv.fl,outlier.thresh,...){
   print(dim(x))
-print(class(cv.fl))
-print(length(cv.fl))
+  x <- cbind(1,x)
+  print(class(cv.fl))
+  print(length(cv.fl))
   if(!is.list(cv.fl))
 	  pred <- x %*% cv.fl
   else
@@ -359,7 +372,7 @@ accuracy.comparison <- function(x,y,fl.shuffling.obj,nl.shuffling.obj){
 #   mxstep <- fl$cv.fl$bestobj$call$maxsteps
   pkgTest("foreach")
   trials <- min(length(fl.shuffling.obj),length(nl.shuffling.obj))
-  pred.fl <- foreach(i=seq(trials),.export = "predict.fl") %do% predict.fl(fl.shuffling.obj$cv.fl[[i]]$bestsol,x)
+  pred.fl <- foreach(i=seq(trials),.export = "predict.fl") %do% predict.fl(fl.shuffling.obj$cv.fl[[i]]$bestsol,cbind(1,x))
   RSS.fl <- foreach(i=seq(trials),.export = "get.rss",.combine = 'c') %do% get.rss(pred.fl[[i]],y)
   correlation.fl <- foreach(i=seq(trials),.combine = 'c') %do% cor(y,pred.fl[[i]],method='spearman')
   
@@ -386,7 +399,7 @@ plot.fl.accuracy.allmodels <- function(models,datasets,datasets.names,shuffle.id
       partition <- foreach(i=seq(length(models[[model.idx]])),.export = "data.partition") %do%
         data.partition(x = datasets[[ds.idx]]$x[shuffle.idx[i,],],y = datasets[[ds.idx]]$y[shuffle.idx[i,]],percent)
       pred <- foreach(i=seq(length(models[[model.idx]])),.combine = 'rbind',.export = c("predict.fl")) %do%
-        t(predict.fl(models[[model.idx]]$cv.fl[[i]]$bestsol,partition[[i]]$test$x))
+        t(predict.fl(models[[model.idx]]$cv.fl[[i]]$bestsol,cbind(1,partition[[i]]$test$x)))
       #print(c('pred',pred))
       rss <- mean(foreach(i=seq(length(models[[model.idx]])),.combine = 'c',.export = c("get.rss")) %do%
                     get.rss(pred[i,],partition[[i]]$test$y))
@@ -431,7 +444,7 @@ plot.fl.accuracy.allmodels2 <- function(models,datasets,shuffle.idx,main=NA,perc
           partition <- foreach(i=seq(length(models[[paste(grp.model,anchor.model,sep='_')]])),.export = "data.partition") %do%
             data.partition(x = datasets[[paste(grp.dataset,anchor.dataset,sep='_')]]$x[shuffle.idx[i,],],y = datasets[[paste(grp.dataset,anchor.dataset,sep='_')]]$y[shuffle.idx[i,]],percent)
           pred <- foreach(i=seq(length(models[[paste(grp.model,anchor.model,sep='_')]])),.combine = 'rbind',.export = c("predict.fl")) %do%
-            t(predict.fl(models[[paste(grp.model,anchor.model,sep='_')]]$cv.fl[[i]]$bestsol,partition[[i]]$test$x))
+            t(predict.fl(models[[paste(grp.model,anchor.model,sep='_')]]$cv.fl[[i]]$bestsol,cbind(1,partition[[i]]$test$x)))
           
           rss <- mean(foreach(i=seq(length(models[[paste(grp.model,anchor.model,sep='_')]])),.combine = 'c',.export = c("get.rss")) %do%
             get.rss(pred[i,],partition[[i]]$test$y))
@@ -469,7 +482,7 @@ plot.nl.accuracy.allmodels <- function(models,datasets,datasets.names,shuffle.id
       partition <- foreach(i=seq(length(models[[model.idx]])),.export = "data.partition") %do%
         data.partition(x = datasets[[ds.idx]]$x[shuffle.idx[i,],],y = datasets[[ds.idx]]$y[shuffle.idx[i,]],percent)
       pred <- foreach(i=seq(length(models[[model.idx]])),.combine = 'rbind',.export = c("predict.fl")) %do%
-        t(predict(models[[model.idx]]$cv.nl[[i]],partition[[i]]$test$x))
+        t(predict(models[[model.idx]]$cv.nl[[i]],cbind(1,partition[[i]]$test$x)))
       #print(c('pred',pred))
       rss <- mean(foreach(i=seq(length(models[[model.idx]])),.combine = 'c',.export = c("get.rss")) %do%
                     get.rss(pred[i,],partition[[i]]$test$y))
