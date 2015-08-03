@@ -131,14 +131,13 @@ normalasso.shuffling <- function(x,y,bin.cnt,shuffle.idx,trial=20,percent=.8,cor
   if(is.null(shuffle.idx))
 		      shuffle.idx <- t(sapply(seq(trials),function(i)sample(nrow(x))))
     trials <- nrow(shuffle.idx)
-print(is.null(x))
 	  hist.cnt <- ncol(x)/bin.cnt
 	  partition <- sapply(seq(trials),function(trial)data.partition(as.matrix(x[shuffle.idx[trial,],]),y[shuffle.idx[trial,]],percent))
 	  print('after partiotioning')
 	  cv.nl <- mclapply(seq(trials),function(trial)cv.glmnet(x=group.rescale(partition[1,trial]$train$x,0,1,bin.cnt),y=partition[1,trial]$train$y,parallel=F),mc.cores=20)
 	  print('after mclapply')
 	  if(cor.ret&rss.ret){
-		    pred.nl <- sapply(seq(trials),function(i){x.rescaled <- group.rescale(partition[2,i]$test$x,0,1,bin.cnt,group.min=min(min(partition[1,trial]$train$x)),group.max=max(max(partition[1,trial]$train$x)));print(x.rescaled[1:10,1:5]) ;predict(cv.nl[[i]],x.rescaled)})
+		    pred.nl <- sapply(seq(trials),function(i){x.rescaled <- group.rescale(partition[2,i]$test$x,0,1,bin.cnt,group.min=min(min(partition[1,trial]$train$x)),group.max=max(max(partition[1,trial]$train$x)));predict(cv.nl[[i]],x.rescaled)})
 	  ##The rest of the cases must also be corrected for the group.rescaling
 	  print('after pred.nl')
 		    RSS.nl <- sapply(seq(trials), function(i) get.rss(pred.nl[,i],partition[2,i]$test$y))
@@ -330,10 +329,7 @@ plot.stability2 <- function(x,y,cv.fl,bin.cnt,trials,histone.names,shuffle.idx=N
 #}
 
 plot.scatter <- function(x,y,cv.fl,outlier.thresh,...){
-  print(dim(x))
   x <- cbind(1,x)
-  print(class(cv.fl))
-  print(length(cv.fl))
   if(!is.list(cv.fl))
 	  pred <- x %*% cv.fl
   else
