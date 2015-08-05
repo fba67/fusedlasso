@@ -1,5 +1,5 @@
 source('UtilityFunctions.R')
-maxsteps = 5000
+maxsteps = 2000
 fusedlasso.main <- function(x,y,bin.cnt,edgs,gammas){#in parallel
   ###To compute the fusedlasso for the given data
   ###Input:
@@ -335,27 +335,30 @@ plot.scatter <- function(x,y,cv.fl,outlier.thresh,...){
   else
 	  pred <- predict.fl(cv.fl$bestsol,x)
   RSS <- get.rss(pred,y)
+
   outliers <- order((y-pred)^2,decreasing = T)[1:floor(outlier.thresh*length(y))]
-  correlation <- round(cor(y[-outliers],pred[-outliers],method='spearman'),2)
+  correlation.spearman <- round(cor(y[-outliers],pred[-outliers],method='spearman'),2)
+  correlation.pearson <- round(cor(y[-outliers],pred[-outliers],method='pearson'),2)
   ####Plot the scatter plot
   plot(pred[-outliers],y[-outliers],ylab='measured expr.',col='blue',...)
   reg <- lm(y~pred)
   #abline(reg,col='red')
-  legend('topleft',legend = paste('cor=',correlation,'_RMSE=',round(RSS,2),sep=''))
-  return(list(rss=RSS,cor=correlation))
+  legend('topleft',legend = paste('s=',correlation.spearman,'_p=',correlation.pearson,'_RMSE=',round(RSS,2),sep=''))
+  return(list(rss=RSS,cor=c(correlation.spearman,correlation.pearson)))
 }
 
 plot.scatter.nl <- function(x,y,cv.nl,outlier.thresh,...){
   pred <- predict(cv.nl,x)
   RSS <- get.rss(pred,y)
   outliers <- order((y-pred)^2,decreasing = T)[1:floor(outlier.thresh*length(y))]
-  correlation <- round(cor(y[-outliers],pred[-outliers],method='spearman'),2)
+  correlation.spearman <- round(cor(y[-outliers],pred[-outliers],method='spearman'),2)
+  correlation.pearson <- round(cor(y[-outliers],pred[-outliers],method='pearson'),2)
   ####Plot the scatter plot
   plot(pred[-outliers],y[-outliers],ylab='measured expr.',col='blue',...)
   reg <- lm(y~pred)
   #abline(reg,col='red')
-  legend('topleft',legend = paste('cor=',correlation,'_RMSE=',round(RSS,2),sep=''))
-  return(list(rss=RSS,cor=correlation))
+  legend('topleft',legend = paste('s=',correlation.spearman,'_p=',correlation.pearson,'_RMSE=',round(RSS,2),sep=''))
+  return(list(rss=RSS,cor=c(correlation.spearman,correlation.pearson)))
 }
 accuracy.comparison <- function(x,y,fl.shuffling.obj,nl.shuffling.obj){
   ###To compute the spearman correlation and RSS of fusedlasso and normal lasso models

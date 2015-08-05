@@ -72,6 +72,7 @@ datasets <- list()
 fl.allModels <- list()
 nl.allModels <- list()
 trials <- 10
+percent <- 0.8
 bestgammas <-vector(mode='numeric',length=length(inPaths)/2)
 bestGammasIdx <- 1
 ctr <- 1
@@ -83,7 +84,7 @@ for(p in seq(1,length(inPaths),2)){
     datasets.names <- c(datasets.names,fileName)
   print(paste('Reading ',fileName,'...',sep=''))
   data.x <- log2(as.matrix(read.table(inPaths[p],header = F))+1)
-  
+  #data.x <- scale(data.x)  
   #data.x <- data.x
   data.y <- as.numeric(readLines(inPaths[(p+1)],))#[1:nrow(data.x)])
   data.y <- log2(as.numeric(readLines(inPaths[(p+1)],))+1)#[1:nrow(data.x)])
@@ -96,7 +97,7 @@ for(p in seq(1,length(inPaths),2)){
     edgs <- c(edgs,bin.cnt*(i-1)+1, rep((bin.cnt*(i-1)+2):(bin.cnt*i - 1),each=2),bin.cnt*i)
   }
   datasets[[ctr]] <- list(x=data.x,y=data.y)
-  partition <- data.partition(data.x,data.y,percent=.8)
+  partition <- data.partition(data.x,data.y,percent=percent)
   shuffle.idx <- matrix(nrow=trials,ncol=nrow(data.x))
   for(i in seq(trials))
     shuffle.idx[i,] <- sample(nrow(data.x))
@@ -112,7 +113,7 @@ for(p in seq(1,length(inPaths),2)){
   print(bestgammas)
   print('Starting shuffling...')
   nl.sh <- normalasso.shuffling(data.x,data.y,bin.cnt,shuffle.idx,trial=trials)#,cor.ret=T,rss.ret=T
-  fl.sh <- fusedlasso.shuffling(data.x,data.y,fl,bin.cnt,shuffle.idx,trial=trials,percent=.8)
+  fl.sh <- fusedlasso.shuffling(data.x,data.y,fl,bin.cnt,shuffle.idx,trial=trials,percent=percent)
   print('Done shuffling.')
   fl.allModels[[ctr]] <- fl.sh
   nl.allModels[[ctr]] <- nl.sh
@@ -140,22 +141,24 @@ for(p in seq(1,length(inPaths),2)){
 
   pdf(paste(outPath,'scaterPlots_entireData_',fileName,'.pdf',sep=''))
   plot.scatter(group.rescale(rbind(partition$train$x,partition$test$x),0,1,bin.cnt,min(min(partition$train$x)),max(max(partition$train$x))),c(partition$train$y,partition$test$y),stab$fl$median,0,main=paste('fl',fileName,'median',sep='_'),xlab='prediction')
-  plot.scatter(group.rescale(rbind(partition$train$x,0,1,bin.cnt,min(min(partition$train$x)),max(max(partition$train$x))),partition$test$x),c(partition$train$y,partition$test$y),stab$fl$mean,0,main=paste('fl',fileName,'mean',sep='_'),xlab='prediction')
+  plot.scatter(group.rescale(rbind(partition$train$x,partition$test$x),0,1,bin.cnt,min(min(partition$train$x)),max(max(partition$train$x))),c(partition$train$y,partition$test$y),stab$fl$mean,0,main=paste('fl',fileName,'mean',sep='_'),xlab='prediction')
   plot.scatter(group.rescale(rbind(partition$train$x,partition$test$x),0,1,bin.cnt,min(min(partition$train$x)),max(max(partition$train$x))),c(partition$train$y,partition$test$y),fl$cv.fl,0,main=paste('fl',fileName,sep='_'),xlab='prediction')
-  plot.scatter.nl(group.rescale(rbind(partition$train$x,partition$test$x),0,1,bin.cnt,min(min(partition$train$x)),max(max(partition$train$x))),c(partition$test$y,partition$test$y),nl.sh$cv.nl[[1]],0,main=paste('nl',fileName,sep='_'),xlab='prediction')
+  plot.scatter.nl(group.rescale(rbind(partition$train$x,partition$test$x),0,1,bin.cnt,min(min(partition$train$x)),max(max(partition$train$x))),c(partition$train$y,partition$test$y),nl.sh$cv.nl[[1]],0,main=paste('nl',fileName,sep='_'),xlab='prediction')
   dev.off()
   ctr <- ctr + 1
   bestGammasIdx <- bestGammasIdx + 1
 }
+print('preparing the details file')
 info[1] <- paste('best gamma(s)',paste(bestgammas,collapse='\t'))
 info[2] <- paste('median of fl',paste(stab$fl$median,collapse="\t"))
 info[3] <- paste('median of nl',paste(stab$nl$median,collapse="\t"))
 writeLines(text=as.character(info),paste(outPath,'/details.txt',sep=''))
+print('done writing the details file')
 save(fl.allModels,nl.allModels,file=paste(outPath,'/fl_nl_allModels.RData',sep=''))
 if(length(datasets)>1){
   pdf(paste(outPath,'/cross_models.pdf',sep=''))
-  plot.fl.accuracy.allmodels(fl.allModels,datasets,datasets.names,shuffle.idx,main='flasso test set',percent=.8)
-  plot.nl.accuracy.allmodels(nl.allModels,datasets,datasets.names,shuffle.idx,main='lasso test set',percent=.8)
+  plot.fl.accuracy.allmodels(fl.allModels,datasets,datasets.names,shuffle.idx,main='flasso test set',percent=percent)
+  plot.nl.accuracy.allmodels(nl.allModels,datasets,datasets.names,shuffle.idx,main='lasso test set',percent=percent)
   dev.off()
 }
 print('best gamma(s)')

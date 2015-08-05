@@ -118,15 +118,22 @@ cv.fusedlasso <- function(x,y,method=c("fusedlasso","fusedlasso1d","fusedlasso2d
   outidx <- foreach (i=seq(nfold)) %dopar% seq(((i-1)*foldsz + 1),i*foldsz,1)
   train <- foreach (i=seq(nfold)) %dopar% list(x=x[-outidx[[i]],],y=y[-outidx[[i]]])
   validation <- foreach (i=seq(nfold)) %dopar% list(x=as.matrix(x[outidx[[i]],]),y=y[outidx[[i]]])
+
+
   edges <- edges + 1
   edges <- c(1,1,edges)
+
+
 #  if(is.null(graph))
-    gr <- graph(edges,directed = F)
+  gr <- graph(edges,directed = F)
   cv.fl <- foreach (i=seq(nfold),.packages = "genlasso") %dopar% do.call(method[1],list(X=cbind(1,train[[i]]$x),y=train[[i]]$y,graph=gr,...))
+#  cv.fl <- foreach (i=seq(nfold),.packages = "genlasso") %dopar% do.call(method[1],list(X=train[[i]]$x,y=train[[i]]$y,graph=gr,...))
+  print('finished running do.call(flasso,...)')
   best <- Inf
   ctr <- 1
   for(fl in cv.fl){
     predictions <- sapply(1:ncol(fl$fit),function(i) return(as.matrix(cbind(1,validation[[ctr]]$x)) %*% fl$beta[,i]))
+    #predictions <- sapply(1:ncol(fl$fit),function(i) return(as.matrix(validation[[ctr]]$x) %*% fl$beta[,i]))
     #correlations <- sapply(1:ncol(fl$fit),function(i) return(cor(predictions[,i],validation[[ctr]]$y,'spearman')))
     mses <- sapply(1:ncol(fl$fit),function(i) return(1/length(predictions[,i])*sum((predictions[,i]-as.matrix(validation[[ctr]]$y))^2)))
     best.idx <- which.min(mses)
