@@ -2,7 +2,7 @@ pkgTest <- function(pkg.name)
 {
   if (!require(pkg.name,character.only = TRUE))
   {
-    install.packages(x,dep=TRUE)
+    install.packages(pkg.name,dep=TRUE)
     if(!require(pkg.name,character.only = TRUE))
       stop(paste("Package ",pkg.name," not found!"))
   }
