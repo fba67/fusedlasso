@@ -130,7 +130,7 @@ for(p in seq(1,length(inPaths),2)){
   plot.histone.coef(fl$cv.fl$bestsol$beta,bin.cnt,feature.names,main=paste(fileName,'one model','gamma*',bestgammas[bestGammasIdx],sep='_'),cluster_rows = F, cluster_cols = F)
   dev.off()
   print(class(stab$fl$mean)) 
-  pdf(paste(outPath,'scaterPlots_test_',fileName,'.pdf',sep=''))
+  pdf(paste(outPath,'scatterPlots_test_',fileName,'.pdf',sep=''))
   plot.scatter(group.rescale(partition$test$x,0,1,bin.cnt,min(min(partition$train$x)),max(max(partition$train$x))),partition$test$y,fl$cv.fl,0,main=paste('fl',fileName,sep='_'),xlab='prediction')
   plot.scatter(group.rescale(partition$test$x,0,1,bin.cnt,min(min(partition$train$x)),max(max(partition$train$x))),partition$test$y,stab$fl$median,0,main=paste('fl',fileName,'median',sep='_'),xlab='prediction')
   plot.scatter(group.rescale(partition$test$x,0,1,bin.cnt,min(min(partition$train$x)),max(max(partition$train$x))),partition$test$y,stab$fl$mean,0,main=paste('fl',fileName,'mean',sep='_'),xlab='prediction')
@@ -139,7 +139,7 @@ for(p in seq(1,length(inPaths),2)){
   plot.scatter.nl(group.rescale(partition$test$x,0,1,bin.cnt,min(min(partition$train$x)),max(max(partition$train$x))),partition$test$y,nl.sh$cv.nl[[1]],0.2,main=paste('nl',fileName,'outliersRemoved',sep='_'),xlab='prediction')
   dev.off()
 
-  pdf(paste(outPath,'scaterPlots_entireData_',fileName,'.pdf',sep=''))
+  pdf(paste(outPath,'scatterPlots_entireData_',fileName,'.pdf',sep=''))
   plot.scatter(group.rescale(rbind(partition$train$x,partition$test$x),0,1,bin.cnt,min(min(partition$train$x)),max(max(partition$train$x))),c(partition$train$y,partition$test$y),stab$fl$median,0,main=paste('fl',fileName,'median',sep='_'),xlab='prediction')
   plot.scatter(group.rescale(rbind(partition$train$x,partition$test$x),0,1,bin.cnt,min(min(partition$train$x)),max(max(partition$train$x))),c(partition$train$y,partition$test$y),stab$fl$mean,0,main=paste('fl',fileName,'mean',sep='_'),xlab='prediction')
   plot.scatter(group.rescale(rbind(partition$train$x,partition$test$x),0,1,bin.cnt,min(min(partition$train$x)),max(max(partition$train$x))),c(partition$train$y,partition$test$y),fl$cv.fl,0,main=paste('fl',fileName,sep='_'),xlab='prediction')
@@ -163,3 +163,14 @@ if(length(datasets)>1){
 }
 print('best gamma(s)')
 print(bestgammas)
+beta.mat.med <- matrix(stab$fl$median[2:length(stab$fl$median)],nrow=graphComponents,ncol=bin.cnt,byrow = T)
+beta.mat.mean <- matrix(stab$fl$median[2:length(stab$fl$mean)],nrow=graphComponents,ncol=bin.cnt,byrow = T)
+pdf(paste(outPath,'barplots_median_of_trials',fileName,'.pdf',sep=''))
+coefficients.barplot(beta.mat.med,'Histone Modifications','sum over the bins',feature.names)
+bins.barplot(beta.mat.med,'Bins','sum over histone modifications',seq(-floor(bin.cnt/2)+1,floor(bin.cnt/2),1))
+dev.off()
+
+pdf(paste(outPath,'barplots_mean_of_trials',fileName,'.pdf',sep=''))
+coefficients.barplot(beta.mat.mean,'Histone Modifications','sum over the bins',feature.names)
+bins.barplot(beta.mat.mean,'Bins','sum over histone modifications',seq(-floor(bin.cnt/2)+1,floor(bin.cnt/2),1))
+dev.off()
