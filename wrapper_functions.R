@@ -1,5 +1,5 @@
 source('UtilityFunctions.R')
-maxsteps = 2000
+maxsteps = 200
 fusedlasso.main <- function(x,y,bin.cnt,edgs,gammas){#in parallel
   ###To compute the fusedlasso for the given data
   ###Input:
@@ -81,7 +81,7 @@ fusedlasso.shuffling.par <- function(x,y,fl,shuffle.idx,bin.cnt,trial=20,percent
 }
 
 
-fusedlasso.shuffling <- function(x,y,fl,bin.cnt,shuffle.idx,trial=20,percent=.8,cor.ret=T,rss.ret=T){
+fusedlasso.shuffling <- function(x,y,fl,bin.cnt,shuffle.idx,trials=20,percent=.8,cor.ret=T,rss.ret=T){
   pkgTest("genlasso")
   print(bin.cnt)
   library(parallel)
@@ -106,7 +106,7 @@ fusedlasso.shuffling <- function(x,y,fl,bin.cnt,shuffle.idx,trial=20,percent=.8,
   stopCluster(cluster)
   print("Done running lapply!")
   if(cor.ret&rss.ret){
-    pred.fl <- sapply(seq(trials),function(i) predict.fl(cv.fl[[i]]$bestsol,cbind(1,group.rescale(partition[2,i]$test$x,0,1,bin.cnt,min(min(partition[1,trial]$train$x)),max(max(partition[1,trial]$train$x))))))
+    pred.fl <- sapply(seq(trials),function(i) predict.fl(cv.fl[[i]]$bestsol,cbind(1,group.rescale(partition[2,i]$test$x,0,1,bin.cnt,min(min(partition[1,i]$train$x)),max(max(partition[1,i]$train$x))))))
     RSS.fl <- sapply(seq(trials),function(i) get.rss(pred.fl[,i],partition[2,i]$test$y))
     correlation.fl <- sapply(seq(trials),function(i) cor(partition[2,i]$test$y,pred.fl[,i],method='spearman'))
     return(list(cv.fl=cv.fl,rss=mean(RSS.fl),cor=mean(correlation.fl)))
@@ -124,7 +124,7 @@ fusedlasso.shuffling <- function(x,y,fl,bin.cnt,shuffle.idx,trial=20,percent=.8,
   return(list(cv.fl=cv.fl))
 }
 
-normalasso.shuffling <- function(x,y,bin.cnt,shuffle.idx,trial=20,percent=.8,cor.ret=T,rss.ret=T){
+normalasso.shuffling <- function(x,y,bin.cnt,shuffle.idx,trials=20,percent=.8,cor.ret=T,rss.ret=T){
   pkgTest("glmnet")
   library(parallel)
   #Shuffle the data "trials" times (in parallel)
@@ -137,7 +137,7 @@ normalasso.shuffling <- function(x,y,bin.cnt,shuffle.idx,trial=20,percent=.8,cor
 	  cv.nl <- mclapply(seq(trials),function(trial)cv.glmnet(x=group.rescale(partition[1,trial]$train$x,0,1,bin.cnt),y=partition[1,trial]$train$y,parallel=F),mc.cores=20)
 	  print('after mclapply')
 	  if(cor.ret&rss.ret){
-		    pred.nl <- sapply(seq(trials),function(i){x.rescaled <- group.rescale(partition[2,i]$test$x,0,1,bin.cnt,group.min=min(min(partition[1,trial]$train$x)),group.max=max(max(partition[1,trial]$train$x)));predict(cv.nl[[i]],x.rescaled)})
+		    pred.nl <- sapply(seq(trials),function(i){x.rescaled <- group.rescale(partition[2,i]$test$x,0,1,bin.cnt,group.min=min(min(partition[1,i]$train$x)),group.max=max(max(partition[1,i]$train$x)));predict(cv.nl[[i]],x.rescaled)})
 	  ##The rest of the cases must also be corrected for the group.rescaling
 	  print('after pred.nl')
 		    RSS.nl <- sapply(seq(trials), function(i) get.rss(pred.nl[,i],partition[2,i]$test$y))
@@ -244,7 +244,7 @@ plot.stability <- function(fl.shuffling.obj,nl.shuffling.obj,bin.cnt,histone.nam
   
   las.coefs.fullBeta <- foreach(trial = seq(trials),.combine = 'rbind') %do% as.numeric(coef(nl.shuffling.obj$cv.nl[[trial]]))
   fl.coefs.fullBeta <- foreach(trial = seq(trials),.combine = 'rbind') %do% fl.shuffling.obj$cv.fl[[trial]]$bestsol$beta
-  
+  print(paste('in plot.stability',length(coef(nl.shuffling.obj$cv.nl[[trial]])) ))
   las.coefs <- foreach(trial = seq(trials),.combine = 'rbind') %do% as.numeric(coef(nl.shuffling.obj$cv.nl[[trial]]))[2:length(coef(nl.shuffling.obj$cv.nl[[trial]]))]
   fl.coefs <- foreach(trial = seq(trials),.combine = 'rbind') %do% fl.shuffling.obj$cv.fl[[trial]]$bestsol$beta[2:length(fl.shuffling.obj$cv.fl[[trial]]$bestsol$beta)]
   x <- seq(-(floor(bin.cnt)/2-1),floor(bin.cnt)/2,1)
@@ -542,4 +542,39 @@ plot.nl.accuracy.allmodels2 <- function(models,datasets,shuffle.idx,main=NA,perc
   pheatmap(RSSs,main=paste('NL_RSS of trained models vs\n all combinations_',main,sep=''),cluster_rows = F, cluster_cols = F,display_numbers=T,fontsize_number=18,fontsize_row = 18,fontsize_col = 18)
   
   return(list(rss=RSSs,cor=correlations))
+}
+
+coefficients.barplot <- function(beta.mat,x.name,y.name,feature.names){
+		pkgTest("ggplot2")
+		  beta.df <- data.frame(feature.name=1:nrow(beta.mat),positive=sapply(seq(nrow(beta.mat)),function(i)sum(beta.mat[i,which(beta.mat[i,]>=0)])),
+								             negative=sapply(seq(nrow(beta.mat)),function(i)sum(beta.mat[i,which(beta.mat[i,]<0)])))
+  
+  positive.order <- order(beta.df$positive + beta.df$negative,decreasing = F)
+    negative.order <- order(beta.df$negative,decreasing = F)
+    
+    beta.df.sorted <- beta.df[positive.order,]
+	  
+	  feature.names.sorted <- feature.names[positive.order]
+	  beta.df.final <- data.frame(feature.name=rep(1:nrow(beta.mat),each=2),val=c(rbind(beta.df.sorted$positive,beta.df.sorted$negative)),status=rep(c('positive','negative'),times=nrow(beta.mat)))
+	    
+	    
+	    ggplot(beta.df.final) + 
+		    aes(x = feature.name, y = val, fill = status) +
+			    geom_bar(stat = "identity", position = "identity") + scale_x_continuous(breaks=1:length(feature.names.sorted),labels=feature.names.sorted,name=x.name) +
+				    scale_y_continuous(name=y.name,breaks=seq(floor(min(beta.df.final$val)),ceiling(max(beta.df.final$val)),0.5)) +
+					    theme(axis.text.y = element_text(vjust = 0.5, hjust = 0)) +coord_flip()
+}
+
+bins.barplot <- function(beta.mat,x.name,y.name,feature.names){
+		pkgTest("ggplot2")
+		  beta.df <- data.frame(feature.name=1:ncol(beta.mat),positive=sapply(seq(ncol(beta.mat)),function(i)sum(beta.mat[which(beta.mat[,i]>=0),i])),
+								                        negative=sapply(seq(ncol(beta.mat)),function(i)sum(beta.mat[which(beta.mat[,i]<0),i])))
+  
+  beta.df.final <- data.frame(feature.name=rep(1:ncol(beta.mat),each=2),val=c(rbind(beta.df$positive,beta.df$negative)),status=rep(c('positive','negative'),times=ncol(beta.mat)))
+    
+    ggplot(beta.df.final) + 
+	    aes(x = feature.name, y = val, fill = status) +
+		    geom_bar(stat = "identity", position = "identity") + scale_x_continuous(labels=feature.names,name=x.name,breaks=1:length(feature.names)) +
+			    scale_y_continuous(name=y.name) +
+				    theme(axis.text.y = element_text(vjust = 0.5, hjust = 0))
 }

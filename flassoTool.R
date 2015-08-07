@@ -112,7 +112,7 @@ for(p in seq(1,length(inPaths),2)){
   }
   print(bestgammas)
   print('Starting shuffling...')
-  nl.sh <- normalasso.shuffling(data.x,data.y,bin.cnt,shuffle.idx,trial=trials)#,cor.ret=T,rss.ret=T
+  nl.sh <- normalasso.shuffling(data.x,data.y,bin.cnt,shuffle.idx,trial=trials,cor.ret=T,rss.ret=T)
   fl.sh <- fusedlasso.shuffling(data.x,data.y,fl,bin.cnt,shuffle.idx,trial=trials,percent=percent)
   print('Done shuffling.')
   fl.allModels[[ctr]] <- fl.sh
@@ -123,6 +123,13 @@ for(p in seq(1,length(inPaths),2)){
   dev.off()
   
   save(fl,fl.sh,stab,file=paste(outPath,'/fl_shfld_',fileName,'.RData',sep=''))
+  print('preparing the details file')
+  info[1] <- paste('best gamma(s)',paste(bestgammas,collapse='\t'))
+  info[2] <- paste('median of fl',paste(stab$fl$median,collapse="\t"))
+  info[3] <- paste('median of nl',paste(stab$nl$median,collapse="\t"))
+  writeLines(text=as.character(info),paste(outPath,'/details.txt',sep=''))
+  print('done writing the details file')
+  
   pdf(paste(outPath,'fusedLasso_coefs_heatmap',fileName,'.pdf',sep=''))
   print(fl$cv.fl$bestsol$beta)
   plot.histone.coef(stab$fl$median,bin.cnt,feature.names,main=paste(fileName,'median of trials',sep='_'),cluster_rows = F, cluster_cols = F)
@@ -148,12 +155,6 @@ for(p in seq(1,length(inPaths),2)){
   ctr <- ctr + 1
   bestGammasIdx <- bestGammasIdx + 1
 }
-print('preparing the details file')
-info[1] <- paste('best gamma(s)',paste(bestgammas,collapse='\t'))
-info[2] <- paste('median of fl',paste(stab$fl$median,collapse="\t"))
-info[3] <- paste('median of nl',paste(stab$nl$median,collapse="\t"))
-writeLines(text=as.character(info),paste(outPath,'/details.txt',sep=''))
-print('done writing the details file')
 save(fl.allModels,nl.allModels,file=paste(outPath,'/fl_nl_allModels.RData',sep=''))
 if(length(datasets)>1){
   pdf(paste(outPath,'/cross_models.pdf',sep=''))
