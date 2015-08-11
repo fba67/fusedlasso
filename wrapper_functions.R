@@ -1,5 +1,5 @@
 source('UtilityFunctions.R')
-maxsteps = 200
+maxsteps = 100
 fusedlasso.main <- function(x,y,bin.cnt,edgs,gammas){#in parallel
   ###To compute the fusedlasso for the given data
   ###Input:
@@ -239,9 +239,9 @@ plot.histone.coef <- function(beta,bin.cnt,histone.name,...){
 }
 
 plot.stability <- function(fl.shuffling.obj,nl.shuffling.obj,bin.cnt,histone.names){
-  trials <- min(length(fl.shuffling.obj),length(nl.shuffling.obj))
+  trials <- min(length(fl.shuffling.obj$cv.fl),length(nl.shuffling.obj$cv.nl))
   hist.cnt <- length(histone.names)
-  
+  print(c('in plot.stability... trials=',trials))  
   las.coefs.fullBeta <- foreach(trial = seq(trials),.combine = 'rbind') %do% as.numeric(coef(nl.shuffling.obj$cv.nl[[trial]]))
   fl.coefs.fullBeta <- foreach(trial = seq(trials),.combine = 'rbind') %do% fl.shuffling.obj$cv.fl[[trial]]$bestsol$beta
   print(paste('in plot.stability',length(coef(nl.shuffling.obj$cv.nl[[trial]])) ))
