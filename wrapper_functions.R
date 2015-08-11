@@ -1,5 +1,5 @@
 source('UtilityFunctions.R')
-maxsteps = 100
+maxsteps = 2000
 fusedlasso.main <- function(x,y,bin.cnt,edgs,gammas){#in parallel
   ###To compute the fusedlasso for the given data
   ###Input:
@@ -197,7 +197,25 @@ normalasso.shuffling.par <- function(x,y,shuffle.idx,trial=20,percent=.8,cor.ret
   return(list(cv.nl=cv.nl))
 }
 
-plot.histone.coef <- function(beta,bin.cnt,histone.name,...){
+plot.histone.coef <- function(beta,bin.cnt,feat.names,main.title){
+  pkgTest("gplots")
+  
+  if(class(beta)[1]=="list")
+		  if(!is.null(beta$beta))
+				  beta <- beta$beta
+		  else stop("The beta variable must either be a list containing an element named beta or a numeric vector of beta coefficients of the regressioni model!")
+		  beta <- beta[2:length(beta)] #excluding intercept
+  x <- beta
+  x.matrix <- t(sapply(seq(floor(length(x)/bin.cnt)),function(i) x[seq((i-1)*bin.cnt+1,i*bin.cnt,1)]))
+    colnames(x.matrix) <- seq((-floor(bin.cnt)/2)+1,floor(bin.cnt/2),1)
+    rownames(x.matrix) <- feat.names
+	  heatmap.2(x.matrix, dendrogram="none", Rowv=FALSE, Colv=FALSE,
+				    col = bluered(256), scale="none", key=TRUE, density.info="none",
+					    trace="none",  symm=F,symkey=T,symbreaks=T,colsep = 0:ncol(x.matrix),rowsep = 0:nrow(x.matrix),sepcolor = 'black',sepwidth = c(.001,.001),main=main.title)
+	  
+
+}
+plot.histone.coef.pheatmap <- function(beta,bin.cnt,histone.name,...){
   ###To plot the coefficients obtained by fusedlasso for each histone modification
   ###Input
   #####beta: either a numeric vector or a list containing beta element to represent the coefficients values
