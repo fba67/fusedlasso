@@ -207,7 +207,7 @@ plot.histone.coef <- function(beta,bin.cnt,feat.names,main.title){
 		  beta <- beta[2:length(beta)] #excluding intercept
   x <- beta
   x.matrix <- t(sapply(seq(floor(length(x)/bin.cnt)),function(i) x[seq((i-1)*bin.cnt+1,i*bin.cnt,1)]))
-    colnames(x.matrix) <- seq((-floor(bin.cnt)/2)+1,floor(bin.cnt/2),1)
+    colnames(x.matrix) <- seq((-floor(bin.cnt)/2)+1,ceiling(bin.cnt/2),1)
     rownames(x.matrix) <- feat.names
 	  heatmap.2(x.matrix, dendrogram="none", Rowv=FALSE, Colv=FALSE,
 				    col = bluered(256), scale="none", key=TRUE, density.info="none",
@@ -585,7 +585,7 @@ coefficients.barplot <- function(beta.mat,x.name,y.name,feature.names){
 
 bins.barplot <- function(beta.mat,x.name,y.name,feature.names){
 		pkgTest("ggplot2")
-		  beta.df <- data.frame(feature.name=1:ncol(beta.mat),positive=sapply(seq(ncol(beta.mat)),function(i)sum(beta.mat[which(beta.mat[,i]>=0),i])),
+		beta.df <- data.frame(feature.name=1:ncol(beta.mat),positive=sapply(seq(ncol(beta.mat)),function(i)sum(beta.mat[which(beta.mat[,i]>=0),i])),
 								                        negative=sapply(seq(ncol(beta.mat)),function(i)sum(beta.mat[which(beta.mat[,i]<0),i])))
   
   beta.df.final <- data.frame(feature.name=rep(1:ncol(beta.mat),each=2),val=c(rbind(beta.df$positive,beta.df$negative)),status=rep(c('positive','negative'),times=ncol(beta.mat)))

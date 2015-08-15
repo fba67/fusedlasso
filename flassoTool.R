@@ -173,5 +173,5 @@ dev.off()
 
 pdf(paste(outPath,'barplots_mean_of_trials',fileName,'.pdf',sep=''))
 coefficients.barplot(beta.mat.mean,'','sum over the bins',feature.names)
-bins.barplot(beta.mat.mean,'Bins','sum over features',seq(-floor(bin.cnt/2)+1,floor(bin.cnt/2),1))
+bins.barplot(beta.mat.mean,'Bins','sum over features',seq(-floor(bin.cnt/2)+1,ceiling(bin.cnt/2),1))
 dev.off()
