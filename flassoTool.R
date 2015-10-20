@@ -1,6 +1,6 @@
 set.seed(0)
-trials <- 4
-nfold <- 100
+trials <- 10
+nfold <- 10
 info <- vector(mode="character",length=3)
 args <- commandArgs(trailingOnly = T)
 #options(warn = -1)
@@ -128,7 +128,7 @@ for(p in seq(1,length(inPaths),2)){
   plot.stability(cv.beta.mat.fl,cv.beta.mat.nl$cv.beta,bin.cnt,feature.names)
   plot.stability.var(cv.beta.mat.fl,cv.beta.mat.nl$cv.beta)
   dev.off()
-  save(fl,file=paste(outPath,'/fl_shfld_',fileName,'.RData',sep=''))
+  save(cv.beta.mat.fl,cv.beta.mat.nl,file=paste(outPath,'/cv_beta_',fileName,'.RData',sep=''))
 
   print('preparing the details file')
   info[1] <- paste('best gamma(s)',paste(bestgammas,collapse='\t'))
