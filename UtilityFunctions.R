@@ -98,12 +98,147 @@ predict.fl <- function(cv.obj,x){
   return(x %*% cv.obj$beta)
 }
 
-get.rss <- function(pred,y){
+get.rss <- function(pred,y){ #computes the RMSE
   n <- length(y)
   return((sqrt(1/n*sum((pred-y)^2))))
 }
 
-cv.fusedlasso <- function(x,y,method=c("fusedlasso","fusedlasso1d","fusedlasso2d"),nfold=10,edges,...){
+coef.variation <- function(mat){
+  zero.idxs <- which(colSums(mat)==0)
+  return(apply(mat[,-zero.idxs],2,FUN=var))
+}
+
+cv.beta.matrix.nl <- function(x,y,nfold){
+	pkgTest("glmnet")
+	pkgTest("foreach")
+	n <- nrow(x)
+	p <- ncol(x)
+	foldsz <- floor(n/nfold)
+	if(foldsz<2){
+	  print(paste('Number of fold for CV (',nfold,') is too large with respect to the training size... Setting it to 2',sep=''))
+	  nfold <- 2
+	  foldsz <- floor(n/nfold)
+	}
+	outidx <- foreach (i=seq(nfold)) %do% seq(((i-1)*foldsz + 1),i*foldsz,1)
+	train <- foreach (i=seq(nfold)) %do% list(x=x[-outidx[[i]],],y=y[-outidx[[i]]])
+	validation <- foreach (i=seq(nfold)) %do% list(x=as.matrix(x[outidx[[i]],]),y=y[outidx[[i]]])
+	cv.gl.res <- cv.glmnet(x=x,y=y,nfold=nfold,keep=T)
+	lambda.opt <- cv.gl.res$lambda.min
+	beta.mat <- matrix(NA,nrow=nfold,ncol=(p+1))
+	for(i in seq(nfold)){
+	  fit <- glmnet(train[[i]]$x,train[[i]]$y,lambda=lambda.opt)
+	  beta <- predict(fit,type='coef')
+	  beta.mat[i,] <- as.numeric(beta)
+	}
+  print(c('dim(beta.mat)',dim(beta.mat)))
+	nl <- glmnet(x,y,lambda=lambda.opt)
+	nl.beta <- as.numeric(predict(nl,type='coef'))
+	print(c('length(nl.beta)',length(nl.beta)))
+	return(list(cv.beta=beta.mat,best.nl=nl.beta))
+}
+
+
+cv.beta.matrix.fl <- function(cv.fl,opt.lambda){
+  beta.mat <- matrix(NA,nrow=length(cv.fl),ncol=nrow(cv.fl[[1]]$beta))
+  i <- 1
+  for(fl in cv.fl){
+    inc.ord <- order(fl$lambda)
+    hit <- findInterval(opt.lambda,fl$lambda[inc.ord])
+    if(hit == 0)
+      hit <- 1
+      beta.mat[i,] <- fl$beta[,inc.ord[hit]]
+      i <- i + 1
+    }
+  return(beta.mat)
+}
+
+stability.var.plot <- function(fl.var,nl.var){
+  boxplot(list(FL=fl.var,NL=nl.var),col=c('red','blue'),ylab='variance of non-zero CV coefs',main='Stability')
+}
+
+beta.interpolate <- function(lambda,all.lambdas,beta){#all.lambdas must be sorted increasingly
+  beta.new <- vector(mode='numeric',length=nrow(beta))
+  
+  for(i in seq(2,nrow(beta),1)){
+      hit <- findInterval(lambda,all.lambdas)
+      if(hit <= 1)
+        beta.new[i] <- beta[1]
+        else{
+	        slope <- (beta[i,hit] - beta[i,(hit - 1)]) / (all.lambdas[hit] - all.lambdas[(hit - 1)])
+	        beta.new[i] <- slope * lambda
+	    }
+    }
+    return(beta.new)
+}
+
+cv.fusedlasso <- function(x,y,method=c("fusedlasso","fusedlasso1d","fusedlasso2d"),nfold=10,gr,...){
+  pkgTest("genlasso")
+  pkgTest("foreach")
+  n <- nrow(x)
+  p <- ncol(x)
+  x <- group.rescale(x,0,1,bin.cnt)
+  foldsz <- floor(n/nfold)
+  if(foldsz<2){
+    print(paste('Number of fold for CV (',nfold,') is too large with respect to the training size... Setting it to 2',sep=''))
+    nfold <- 2
+    foldsz <- floor(n/nfold)
+  }
+  outidx <- foreach (i=seq(nfold)) %dopar% seq(((i-1)*foldsz + 1),i*foldsz,1)
+  train <- foreach (i=seq(nfold)) %dopar% list(x=x[-outidx[[i]],],y=y[-outidx[[i]]])
+  validation <- foreach (i=seq(nfold)) %dopar% list(x=as.matrix(x[outidx[[i]],]),y=y[outidx[[i]]])
+
+  cv.fl <- foreach (i=seq(nfold),.packages = "genlasso") %dopar% do.call(method[1],list(X=cbind(1,train[[i]]$x),y=train[[i]]$y,graph=gr,...))
+#  cv.fl <- foreach (i=seq(nfold),.packages = "genlasso") %dopar% do.call(method[1],list(X=train[[i]]$x,y=train[[i]]$y,graph=gr,...))
+  print('finished running do.call(flasso,...)')
+  ctr <- 1
+  mses <- list()
+  lambda.table <- NULL
+  for(fl in cv.fl){
+	lambda.cnt <- ncol(fl$fit)
+    predictions <- sapply(1:lambda.cnt,function(i) return(as.matrix(cbind(1,validation[[ctr]]$x)) %*% fl$beta[,i]))
+	mses[[ctr]] <- t(sapply(1:lambda.cnt,function(i) return(1/length(predictions[,i])*sum((predictions[,i]-as.matrix(validation[[ctr]]$y))^2))))
+	lambda.table <- cbind(lambda.table,rbind(rep(ctr,times = lambda.cnt),fl$lambda,mses[[ctr]]))
+    ctr <- ctr + 1
+  }
+  lambdas.cnt <- ncol(lambda.table)
+  lambda.table.ordered <- lambda.table[,order(lambda.table[2,])]
+
+  all.cv.rss <- matrix(NA,nrow=nfold,ncol=lambdas.cnt)
+  fold.idx <- vector(length=nfold,mode='numeric')
+  for(i in seq(lambdas.cnt)){
+    all.cv.rss[lambda.table.ordered[1,i],i] <- lambda.table.ordered[3,i]
+    rest.of.idxs <- seq(nfold)[-lambda.table.ordered[1,i]]
+    for(j in rest.of.idxs){
+	  hit.idx <- which(lambda.table.ordered[1,]==j)
+      hit <- findInterval(lambda.table.ordered[2,i],lambda.table.ordered[2,hit.idx])[1];
+	  if(hit==0){ # the lambda is smaller than the range of lambdas searched in fold #j
+		  hit <- hit.idx[1]
+	  	  all.cv.rss[j,i] <- lambda.table.ordered[3,hit]
+	  }else{
+		  #ord.inc <- order(cv.fl[[j]]$lambda)
+		  #beta.interpolated <- beta.interpolate(lambda.table.ordered[2,i],cv.fl[[j]]$lambda[ord.inc],cv.fl[[j]]$beta[,ord.inc])
+
+		  #pred <- cv.fl[[j]]$call$X %*% beta.interpolated
+		  all.cv.rss[j,i] <- lambda.table.ordered[3,hit.idx[hit]]
+		  #all.cv.rss[j,i] <- get.rss(cv.fl[[j]]$call$y,pred)
+	  }
+	}
+  }
+  cvm <- colMeans(all.cv.rss)
+  lambda.min.idx <- which.min(cvm)[1]
+  best.model.idx <- which(cv.fl[[lambda.table.ordered[1,lambda.min.idx]]]$lambda==lambda.table.ordered[2,lambda.min.idx])[1]
+  lambda.optimal <- lambda.table.ordered[2,lambda.min.idx]
+  beta.optimal <- cv.fl[[lambda.table.ordered[1,lambda.min.idx]]]$beta[,best.model.idx]
+  cv.beta.mat <- cv.beta.matrix.fl(cv.fl,lambda.optimal)
+  df.optimal <- summary(cv.fl[[lambda.table.ordered[1,lambda.min.idx]]])[best.model.idx,1]
+  bestSol <- list(lambda=lambda.optimal,beta=beta.optimal,df=df.optimal,validationMSE=cvm[lambda.min.idx])
+  best.fl <- cv.fl[[lambda.table.ordered[1,lambda.min.idx]]]
+  #save(lambda.table,lambda.table.ordered,cv.fl,cvm,file='cv.flasso.test.RData')
+  print('done saving in cv.fusedlasso')
+  return(list(bestobj=best.fl,bestsol=bestSol,cv.beta.mat=cv.beta.mat))
+}
+
+cv.fusedlasso_min_of_all_folds <- function(x,y,method=c("fusedlasso","fusedlasso1d","fusedlasso2d"),nfold=10,edges,...){
   pkgTest("genlasso")
   pkgTest("foreach")
   n <- nrow(x)
