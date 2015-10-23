@@ -105,6 +105,8 @@ get.rss <- function(pred,y){ #computes the RMSE
 
 coef.variation <- function(mat){
   zero.idxs <- which(colSums(mat)==0)
+  if(length(zero.idxs) == 0)
+		  return(apply(mat,2,FUN=var))
   return(apply(mat[,-zero.idxs],2,FUN=var))
 }
 
