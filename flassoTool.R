@@ -1,6 +1,6 @@
 set.seed(0)
-trials <- 10
-nfold <- 10
+#trials <- 10
+nfold <- 50
 info <- vector(mode="character",length=3)
 args <- commandArgs(trailingOnly = T)
 #options(warn = -1)
