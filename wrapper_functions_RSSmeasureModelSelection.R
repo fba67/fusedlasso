@@ -34,7 +34,7 @@ fusedlasso.main <- function(x,y,bin.cnt,edgs,gammas){#in parallel
     
     df <- ncol(x) - cv.fl$bestsol$df
     rss <- cv.fl$bestsol$validationMSE
-    if(err.best < rss){
+    if(err.best > rss){
       err.best <- rss
       fl.best <- cv.fl
       bestGamma <- gamma
