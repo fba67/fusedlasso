@@ -34,7 +34,6 @@ fusedlasso.main <- function(x,y,bin.cnt,edgs,gammas){#in parallel
     
     df <- ncol(x) - cv.fl$bestsol$df
     rss <- cv.fl$bestsol$validationMSE
-    err.df.ratio <- df/rss
     if(rss.best > rss){
       rss.best <- rss
       fl.best <- cv.fl
@@ -49,7 +48,7 @@ fusedlasso.main <- function(x,y,bin.cnt,edgs,gammas){#in parallel
   beta.inc.ordered <- fl$beta[,inc.order.idx]
   pred <- cbind(1,x) %*% beta.inc.ordered[,optimal.lambda.idx]
   validationRMSE <- get.rss(pred,y) 
-  bestsol <- list(lambda=fl.best$bestsol$lambda,beta=beta.inc.ordered[,optimal.lambda.idx],df=summary(fl)[optimal.lambda.idx,1],validationRMSE=validationRMSE)
+  bestsol <- list(lambda=fl.best$bestsol$lambda,beta=beta.inc.ordered[,optimal.lambda.idx],df=summary(fl)[optimal.lambda.idx,1],validationRMSE=validationRMSE,cv.beta.mat=fl.best$cv.beta.mat)
   fl.best <- list(bestobj=fl,bestsol=bestsol)
   return(list(cv.fl=fl.best,gamma.best=bestGamma))
 }
