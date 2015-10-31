@@ -1,5 +1,5 @@
 source('UtilityFunctions.R')
-maxsteps = 2000
+maxsteps = 200
 fusedlasso.main <- function(x,y,bin.cnt,edgs,gammas){#in parallel
   ###To compute the fusedlasso for the given data
   ###Input:
@@ -15,8 +15,8 @@ fusedlasso.main <- function(x,y,bin.cnt,edgs,gammas){#in parallel
   
   pkgTest("cluster")
   hist.cnt <- ceiling(ncol(x)/bin.cnt) #the No of histone modifications
-  rss.best <- Inf #keeps the best RSS
-  fl.best <- NULL #keeps the best fusedlasso model based on the RSS
+  err.best <- Inf #keeps the best ratio
+  fl.best <- NULL #keeps the best fusedlasso model based on the ratio
 
   edgs <- edgs + 1
   edgs <- c(1,1,edgs)
@@ -29,23 +29,28 @@ fusedlasso.main <- function(x,y,bin.cnt,edgs,gammas){#in parallel
   for(gamma in gammas){
     print(paste('gamma: ',gamma,sep=''))
     print('Computing flasso...')
-    cv.fl <- cv.fusedlasso(x,y,method="fusedlasso",nfold=10,gr,gamma=gamma,maxsteps = maxsteps)
+    cv.fl <- cv.fusedlasso(x,y,method="fusedlasso",nfold=nfold,gr,gamma=gamma,maxsteps = maxsteps)
     print('Done computing flasso')
     
     df <- ncol(x) - cv.fl$bestsol$df
     rss <- cv.fl$bestsol$validationMSE
-    if(rss.best > rss){
-      rss.best <- rss
+    if(err.best < rss){
+      err.best <- rss
       fl.best <- cv.fl
       bestGamma <- gamma
     }
   }
   stopCluster(cluster)
+  x <- group.rescale(x,0,1,bin.cnt)
   fl <- do.call("fusedlasso",list(X=cbind(1,x),y=y,graph=gr,gamma=bestGamma,maxsteps = maxsteps))
   inc.order.idx <- order(fl$lambda)
   optimal.lambda.idx <- findInterval(fl.best$bestsol$lambda,fl$lambda[inc.order.idx])
+  if(optimal.lambda.idx == 0){
+    optimal.lambda.idx <- 1
+  }
   print(c('optimal.lambda.idx',optimal.lambda.idx))
   beta.inc.ordered <- fl$beta[,inc.order.idx]
+  print('in fusedloass.main')
   pred <- cbind(1,x) %*% beta.inc.ordered[,optimal.lambda.idx]
   validationRMSE <- get.rss(pred,y) 
   bestsol <- list(lambda=fl.best$bestsol$lambda,beta=beta.inc.ordered[,optimal.lambda.idx],df=summary(fl)[optimal.lambda.idx,1],validationRMSE=validationRMSE,cv.beta.mat=fl.best$cv.beta.mat)
@@ -95,7 +100,7 @@ fusedlasso.shuffling.par <- function(x,y,fl,shuffle.idx,bin.cnt,trial=20,percent
 }
 
 
-fusedlasso.shuffling <- function(x,y,fl,bin.cnt,shuffle.idx,trials=20,percent=.8,cor.ret=T,rss.ret=T){
+fusedlasso.shuffling <- function(x,y,fl,edgs,bin.cnt,shuffle.idx,trials=20,percent=.8,cor.ret=T,rss.ret=T){
   pkgTest("genlasso")
   print(bin.cnt)
   library(parallel)
@@ -110,18 +115,21 @@ fusedlasso.shuffling <- function(x,y,fl,bin.cnt,shuffle.idx,trials=20,percent=.8
   partition <- sapply(seq(trials),function(trial)data.partition(as.matrix(x[shuffle.idx[trial,],]),y[shuffle.idx[trial,]],percent))
   print("Running lapply")
   
-  cluster = makeCluster(20)
-  registerDoSNOW(cluster)
+  #cluster = makeCluster(20)
+  #registerDoSNOW(cluster)
   cv.fl <- lapply(seq(trials), function(trial){print(trial)
-							      cv.fusedlasso(partition[1,trial]$train$x,partition[1,trial]$train$y,method="fusedlasso",fl$cv.fl$bestobj$call$graph,nfold=10,
-												                  gamma = gamma,maxsteps = fl$cv.fl$bestobj$call$maxsteps)
-})
-  stopCluster(cluster)
+				  fusedlasso.main(partition[1,trial]$train$x,partition[1,trial]$train$y,bin.cnt,edgs,gamma)$cv.fl
+  })
+#  cv.fl <- lapply(seq(trials), function(trial){print(trial)
+#							      cv.fusedlasso(partition[1,trial]$train$x,partition[1,trial]$train$y,method="fusedlasso",fl$cv.fl$bestobj$call$graph,nfold=10,
+#												                  gamma = gamma,maxsteps = fl$cv.fl$bestobj$call$maxsteps)
+#})
+  #stopCluster(cluster)
   save(cv.fl,partition,file='testErr.RData')
   print("Done running lapply!")
   print(c('length(cv.fl)',length(cv.fl)))
   print(c('class(cv.fl[1]]$bestsol)',class(cv.fl[[1]]$bestsol)))
-  print(c('length(cv.fl[1]]$bestsol$beta)',length(cv.fl[[1]]$bestsol$beta)))
+  print(c('length(cv.fl[1]]$cv.fl$bestsol$beta)',length(cv.fl[[1]]$bestsol$beta)))
   print(c('dim(partition)',dim(partition)))
   print(c('dim(partition[1,1]$train$x)',dim(partition[1,1]$train$x)))
   if(cor.ret&rss.ret){
@@ -133,12 +141,12 @@ fusedlasso.shuffling <- function(x,y,fl,bin.cnt,shuffle.idx,trials=20,percent=.8
     return(list(cv.fl=cv.fl,rss=mean(RSS.fl),cor=correlation.fl.mean))
   }##The rest of the cases must also be corrected for the group.rescaling
   else if(cor.ret){
-    pred.fl <- sapply(seq(trials),function(i) predict.fl(cv.fl[[i]]$bestsol,cbind(1,partition[2,i]$test$x)))
+    pred.fl <- sapply(seq(trials),function(i) predict.fl(cv.fl[[i]]$cv.fl$bestsol,cbind(1,partition[2,i]$test$x)))
     correlation.fl <- sapply(seq(trials),function(i) cor(partition[2,i]$test$y,pred.fl[,i],method='spearman'))
     return(list(cv.fl=cv.fl,cor=mean(correlation.fl)))
   }
   else if(rss.ret){
-    pred.fl <- sapply(seq(trials),function(i) predict.fl(cv.fl[[i]]$bestsol,cbind(1,partition[2,i]$test$x)))
+    pred.fl <- sapply(seq(trials),function(i) predict.fl(cv.fl[[i]]$cv.fl$bestsol,cbind(1,partition[2,i]$test$x)))
     RSS.fl <- sapply(seq(trials),function(i) get.rss(pred.fl[,i],partition[2,i]$test$y))
     return(list(cv.fl=cv.fl,rss=mean(RSS.fl)))
   }
@@ -279,7 +287,28 @@ plot.histone.coef.pheatmap <- function(beta,bin.cnt,histone.name,...){
   pheatmap(histones,...)#,color=colors2,...)#,legend_breaks=bk,legend_labels=as.character(round(bk,3)),...)#quantile(bk,seq(0,1,length=length(bk)))
 }
 
-plot.stability <- function(fl.shuffling.obj,nl.shuffling.obj,bin.cnt,histone.names){
+plot.stability.var <- function(cv.beta.mat.fl,cv.beta.mat.nl){
+  cv.beta.mat.fl <- cv.beta.mat.fl[,-1]#remove intercept
+  cv.beta.mat.nl <- cv.beta.mat.nl[,-1]#remove intercept
+  fl.var <- coef.variation(cv.beta.mat.fl)
+  nl.var <- coef.variation(cv.beta.mat.nl)
+  boxplot(list(FusedLASSO=fl.var,LASSO=nl.var),col=c('red','blue'),ylab='variance of non-zero CV coefs',main='Stability')
+}
+
+plot.stability <- function(cv.beta.mat.fl,cv.beta.mat.nl,bin.cnt,feature.name){
+  par(mfrow = c(3,2))
+  cv.beta.mat.fl <- cv.beta.mat.fl[,-1]#remove intercept
+  cv.beta.mat.nl <- cv.beta.mat.nl[,-1]#remove intercept
+  range.max <- c(max(min(cv.beta.mat.fl),min(cv.beta.mat.nl)),max(max(cv.beta.mat.fl),max(cv.beta.mat.nl)))
+  sapply(seq(length(feature.name)),function(i){boxplot(cv.beta.mat.fl[,seq((i-1)*bin.cnt,i*bin.cnt,1)],
+                                                   col='red',main=paste('fl',feature.name[i],sep='_'),ylab='coefficients',ylim=range.max)
+	                                               boxplot(cv.beta.mat.nl[,seq((i-1)*bin.cnt,i*bin.cnt,1)],
+                                                   col='blue',main=paste('nl',feature.name[i],sep='_'),ylim=range.max)
+  })
+  par(mfrow = c(1,1))
+}
+
+plot.stability_shuffling <- function(fl.shuffling.obj,nl.shuffling.obj,bin.cnt,histone.names){
   trials <- min(length(fl.shuffling.obj$cv.fl),length(nl.shuffling.obj$cv.nl))
   hist.cnt <- length(histone.names)
   print(c('in plot.stability... trials=',trials))  
@@ -424,7 +453,43 @@ accuracy.comparison <- function(x,y,fl.shuffling.obj,nl.shuffling.obj){
 
 }
 
-plot.fl.accuracy.allmodels <- function(models,datasets,datasets.names,shuffle.idx,main=NA,percent=.8){
+
+
+plot.fl.accuracy.allmodels <- function(models,datasets,datasets.names,main=NA,percent=.8){
+  ###Input
+  #####models: a list containing di_sense, di_antisense, con_sense,and con_antisense elements of cv.fl objects
+  #####datasets: a list containing di_sense, di_antisense, con_sense,and con_antisense elements of datasets, dataset is itself  a list of x and y
+  pkgTest("foreach")
+  pkgTest("pheatmap")
+    
+  correlations <- matrix(ncol=length(datasets),nrow=length(datasets))
+  RSSs <- matrix(ncol=length(datasets),nrow=length(datasets))
+  headers <- datasets.names
+  print('flasso: Computing cross-dataset performance...')
+    for(model.idx in seq(length(datasets))){
+	    for(ds.idx in seq(length(datasets))){
+	      partition <- data.partition(x = datasets[[ds.idx]]$x,y = datasets[[ds.idx]]$y,percent)
+          pred <- cbind(1,partition$test$x) %*% models[[model.idx]]
+	      #print(c('pred',pred))
+	      rss <- get.rss(pred,partition$test$y)
+	      correlations[model.idx,ds.idx] <- cor(partition$test$y,pred,method='spearman')
+          RSSs[model.idx,ds.idx] <- rss
+	      }
+    }
+	    
+  rownames(correlations) <- headers
+  colnames(correlations) <- headers
+  rownames(RSSs) <- headers
+  colnames(RSSs) <- headers
+  pheatmap(correlations,main=paste('Spearman correlation of trained models vs\n all combinations_',main,sep=''),cluster_rows = T, cluster_cols = T,display_numbers=T,fontsize_number=8,fontsize_row = 8,fontsize_col = 8)
+  pheatmap(RSSs,main=paste('RMSE of trained models vs\n all combinations_',main,sep=''),cluster_rows = T, cluster_cols = T,display_numbers=T,fontsize_number=8,fontsize_row = 8,fontsize_col = 8)
+			  
+  return(list(rss=RSSs,cor=correlations))
+}
+
+
+
+plot.fl.accuracy.allmodels_shuffling <- function(models,datasets,datasets.names,shuffle.idx,main=NA,percent=.8){
   ###Input
   #####models: a list containing di_sense, di_antisense, con_sense,and con_antisense elements of cv.fl objects
   #####datasets: a list containing di_sense, di_antisense, con_sense,and con_antisense elements of datasets, dataset is itself  a list of x and y
@@ -554,47 +619,6 @@ pheatmap(RSSs,main=paste('NL_RMSE of trained models vs\n all combinations_',main
 return(list(rss=RSSs,cor=correlations))
 }
 
-plot.nl.accuracy.allmodels2 <- function(models,datasets,shuffle.idx,main=NA,percent=.8){
-  ###Input
-  #####models: a list containing di_sense, di_antisense, con_sense,and con_antisense elements of cv.fl objects
-  #####datasets: a list containing di_sense, di_antisense, con_sense,and con_antisense elements of datasets, dataset is itself  a list of x and y
-  pkgTest("foreach")
-  pkgTest("pheatmap")
-  pkgTest("glmnet")
-  correlations <- matrix(ncol=4,nrow=4)
-  RSSs <- matrix(ncol=4,nrow=4)
-  headers <- c('di_sense','di_antisense','con_sense','con_antisense')
-  ii <- 1
-  for(grp.model in c('di','con')){
-    for(anchor.model in c('sense','antisense')){
-      jj <- 1
-      for(grp.dataset in c('di','con')){
-        for(anchor.dataset in c('sense','antisense')){
-          partition <- foreach(i=seq(length(models[[paste(grp.model,anchor.model,sep='_')]])),.export = "data.partition") %do%
-            data.partition(x = datasets[[paste(grp.dataset,anchor.dataset,sep='_')]]$x[shuffle.idx[i,],],y = datasets[[paste(grp.dataset,anchor.dataset,sep='_')]]$y[shuffle.idx[i,]],percent)
-          pred <- foreach(i=seq(length(models[[paste(grp.model,anchor.model,sep='_')]])),.combine = 'rbind') %do%
-            t(predict(models[[paste(grp.model,anchor.model,sep='_')]]$cv.nl[[i]],partition[[i]]$test$x))
-          
-          rss <- mean(foreach(i=seq(length(models[[paste(grp.model,anchor.model,sep='_')]])),.combine = 'c',.export = c("get.rss")) %do%
-                        get.rss(pred[i,],partition[[i]]$test$y))
-          correlations[ii,jj] <- mean(foreach(i=seq(length(models[[paste(grp.model,anchor.model,sep='_')]])),.combine = 'c',.export = c("get.rss")) %do%
-                                        cor(partition[[i]]$test$y,pred[i,],method='spearman'))
-          RSSs[ii,jj] <- rss
-          jj <- jj + 1
-        }
-      }
-      ii <- ii + 1
-    }
-  }
-  rownames(correlations) <- headers
-  colnames(correlations) <- headers
-  rownames(RSSs) <- headers
-  colnames(RSSs) <- headers
-  pheatmap(correlations,main=paste('NL_Spearman correlation of trained models vs\n all combinations_',main,sep=''),cluster_rows = F, cluster_cols = F,display_numbers=T,fontsize_number=18,fontsize_row = 18,fontsize_col = 18)
-  pheatmap(RSSs,main=paste('NL_RSS of trained models vs\n all combinations_',main,sep=''),cluster_rows = F, cluster_cols = F,display_numbers=T,fontsize_number=18,fontsize_row = 18,fontsize_col = 18)
-  
-  return(list(rss=RSSs,cor=correlations))
-}
 
 coefficients.barplot <- function(beta.mat,x.name,y.name,feature.names){
 		pkgTest("ggplot2")
