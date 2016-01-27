@@ -91,8 +91,11 @@ for(p in seq(1,length(inPaths),2)){
   data.x <- log2(as.matrix(read.table(inPaths[p],header = F))+1)
   #data.x <- scale(data.x)  
   #data.x <- data.x
-  data.y <- as.numeric(readLines(inPaths[(p+1)],))#[1:nrow(data.x)])
+  #data.y <- as.numeric(readLines(inPaths[(p+1)],))#[1:nrow(data.x)])
   data.y <- log2(as.numeric(readLines(inPaths[(p+1)],))+1)#[1:nrow(data.x)])
+  shuffle <- sample(length(data.y))
+  data.x <- data.x[shuffle,]
+  data.y <- data.y[shuffle]
   print(class(data.y))
   print(paste('Done reading ',fileName,'...',sep=''))
   bin.cnt <- ncol(data.x)/graphComponents
