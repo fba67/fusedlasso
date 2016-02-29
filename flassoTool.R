@@ -1,6 +1,9 @@
-set.seed(0)
+set.seed(1)
 #trials <- 10
-nfold <- 50
+maxsteps = 1000
+my.minlam <- 10^(-5)
+nfold <- 5
+print(paste('nfold=',nfold))
 info <- vector(mode="character",length=3)
 args <- commandArgs(trailingOnly = T)
 #options(warn = -1)
@@ -73,7 +76,7 @@ dir.create(outPath,showWarnings = F)
 graphComponents <- length(feature.names)
 print(graphComponents)
 #source('wrapper_functions.R')
-source('wrapper_functions_RSSmeasureModelSelection2.R')
+source('wrapper_functions_RSSmeasureModelSelection_gamma_parallel.R')
 datasets <- list()
 fl.allModels <- list()
 nl.allModels <- list()
@@ -82,7 +85,12 @@ bestgammas <-vector(mode='numeric',length=length(inPaths)/2)
 bestGammasIdx <- 1
 ctr <- 1
 for(p in seq(1,length(inPaths),2)){
-  fileName <- unlist(strsplit(inPaths[p],split = '/'))[length(unlist(strsplit(inPaths[p],split = '/')))]
+  #fileName <- unlist(strsplit(inPaths[p],split = '/'))[length(unlist(strsplit(inPaths[p],split = '/')))]
+  #if(p==1)
+  #  datasets.names <- fileName
+  #else
+  #  datasets.names <- c(datasets.names,fileName)
+  fileName <- unlist(strsplit(unlist(strsplit(inPaths[(p+1)],split = '/'))[length(unlist(strsplit(inPaths[(p+1)],split = '/')))],split='.y'))[1]
   if(p==1)
     datasets.names <- fileName
   else
@@ -93,6 +101,9 @@ for(p in seq(1,length(inPaths),2)){
   #data.x <- data.x
   data.y <- as.numeric(readLines(inPaths[(p+1)],))#[1:nrow(data.x)])
   data.y <- log2(as.numeric(readLines(inPaths[(p+1)],))+1)#[1:nrow(data.x)])
+  shuffle <- sample(length(data.y))
+  data.x <- data.x[shuffle,]
+  data.y <- data.y[shuffle]
   print(class(data.y))
   print(paste('Done reading ',fileName,'...',sep=''))
   bin.cnt <- ncol(data.x)/graphComponents
@@ -105,7 +116,14 @@ for(p in seq(1,length(inPaths),2)){
   partition <- data.partition(data.x,data.y,percent=percent)
   print(gamma)
   print(dim(partition$train$x))
-  fl <- fusedlasso.main(partition$train$x,partition$train$y,bin.cnt,edgs,seq(gamma$start,gamma$end,gamma$step))
+  #fl <- fusedlasso.main(partition$train$x,partition$train$y,bin.cnt,edgs,seq(gamma$start,gamma$end,gamma$step))
+  if(T){
+  gammas <- c(0,0.001,0.01,0.05,0.1,.5,1,1.5,2)
+  gammas <- 0
+  ctr <- 1
+  for(i in seq(-5,5)){gammas <- c(gammas,(10^i)/2);ctr <- ctr + 1; gammas <- c(gammas,(10^i))}
+  fl <- fusedlasso.main(partition$train$x,partition$train$y,bin.cnt,edgs,gammas)
+  }
   print('Done running fusedlasso.main')
   cv.beta.mat.fl <- fl$cv.fl$bestsol$cv.beta.mat
   print(c('dim(cv.beta.mat.fl)',dim(cv.beta.mat.fl)))
@@ -134,9 +152,13 @@ for(p in seq(1,length(inPaths),2)){
   info[1] <- paste('best gamma(s)',paste(bestgammas,collapse='\t'))
   info[2] <- paste('median of fl',paste(fl.allModels[[ctr]],collapse="\t"))
   info[3] <- paste('median of nl',paste(nl.allModels[[ctr]],collapse="\t"))
+  info[4] <- paste('number of CV folds',nfold,sep='\t')
+  info[5] <- paste('number of maxsteps',maxsteps,sep='\t')
   writeLines(text=as.character(info),paste(outPath,'/details.txt',sep=''))
   print('done writing the details file')
   
+  correlations.fl <- matrix(0,ncol=3,nrow=2)#2 rows for spearman and pearson correlation and 3 columns for test, train, and entire dataset
+  correlations.nl <- matrix(0,ncol=3,nrow=2)#2 rows for spearman and pearson correlation and 3 columns for test, train, and entire dataset
   ##########################################################################################
   #####################      plot coef heatmap      ########################################
   ##########################################################################################
@@ -147,6 +169,68 @@ for(p in seq(1,length(inPaths),2)){
   plot.histone.coef(fl$cv.fl$bestsol$beta,bin.cnt,feature.names,main=paste(fileName,'one model','gamma*',bestgammas[bestGammasIdx],sep='_'))#,cluster_rows = F, cluster_cols = F)
   dev.off()
 
+  pdf(paste(outPath,'standardLasso_coefs_heatmap',fileName,'.pdf',sep=''))
+  plot.histone.coef(apply(cv.beta.mat.nl$cv.beta,2,FUN=median),bin.cnt,feature.names,main=paste(fileName,'median of trials',sep='_'))#,cluster_rows = F, cluster_cols = F)
+  plot.histone.coef(apply(cv.beta.mat.nl$cv.beta,2,FUN=median),bin.cnt,feature.names,main=paste(fileName,'mean of trials',sep='_'))#,cluster_rows = F, cluster_cols = F)
+  plot.histone.coef(cv.beta.mat.nl$best.nl,bin.cnt,feature.names,main=paste(fileName,'one model','gamma*',bestgammas[bestGammasIdx],sep='_'))#,cluster_rows = F, cluster_cols = F)
+  dev.off()
+  ##########################################################################################
+  #####################      scatter plots test data      ##################################
+  ##########################################################################################
+  cv.beta.mat.fl <- fl$cv.fl$bestsol$cv.beta.mat
+  pdf(paste(outPath,'scatterPlots_test_',fileName,'.pdf',sep=''))
+  plot.scatter(group.rescale(partition$test$x,0,1,bin.cnt,min(min(partition$train$x)),max(max(partition$train$x))),partition$test$y,fl$cv.fl$bestsol$beta,0,ylab,main=paste('fl',fileName,sep='_'),xlab='prediction')
+  median.cor <- plot.scatter(group.rescale(partition$test$x,0,1,bin.cnt,min(min(partition$train$x)),max(max(partition$train$x))),partition$test$y,apply(cv.beta.mat.fl,2,FUN=median),0,ylab,main=paste('fl',fileName,'median',sep='_'),xlab='prediction')
+  plot.scatter(group.rescale(partition$test$x,0,1,bin.cnt,min(min(partition$train$x)),max(max(partition$train$x))),partition$test$y,apply(cv.beta.mat.fl,2,FUN=mean),0,ylab,main=paste('fl',fileName,'mean',sep='_'),xlab='prediction')
+#  plot.scatter(group.rescale(partition$test$x,0,1,bin.cnt,min(min(partition$train$x)),max(max(partition$train$x))),partition$test$y,fl$cv.fl,0.2,ylab,main=paste('fl',fileName,'outliersRemoved',sep='_'),xlab='prediction')
+  correlations.fl[1,1] <- median.cor$cor[1];correlations.fl[2,1] <- median.cor$cor[2];
+  ####################################################################
+
+  plot.scatter(partition$test$x,partition$test$y,cv.beta.mat.nl$best.nl,0,ylab,main=paste('nl',fileName,sep='_'),xlab='prediction')
+  median.cor <- plot.scatter(partition$test$x,partition$test$y,apply(cv.beta.mat.nl$cv.beta,2,FUN=median),0,ylab,main=paste('nl',fileName,'median',sep='_'),xlab='prediction')
+  plot.scatter(partition$test$x,partition$test$y,apply(cv.beta.mat.nl$cv.beta,2,FUN=mean),0,ylab,main=paste('nl',fileName,'mean',sep='_'),xlab='prediction')
+  correlations.nl[1,1] <- median.cor$cor[1];correlations.nl[2,1] <- median.cor$cor[2];
+ # plot.scatter.nl(group.rescale(partition$test$x,0,1,bin.cnt,min(min(partition$train$x)),max(max(partition$train$x))),partition$test$y,nl.sh$cv.nl[[1]],0.2,ylab,main=paste('nl',fileName,'outliersRemoved',sep='_'),xlab='prediction')
+  dev.off()
+print('done test data scatter plots')
+  ##########################################################################################
+  #####################      scatter plots train data      ##################################
+  ##########################################################################################
+  cv.beta.mat.fl <- fl$cv.fl$bestsol$cv.beta.mat
+  pdf(paste(outPath,'scatterPlots_train_',fileName,'.pdf',sep=''))
+  median.cor <- plot.scatter(group.rescale(partition$train$x,0,1,bin.cnt,min(min(partition$train$x)),max(max(partition$train$x))),partition$train$y,fl$cv.fl$bestsol$beta,0,ylab,main=paste('fl',fileName,sep='_'),xlab='prediction')
+  plot.scatter(group.rescale(partition$train$x,0,1,bin.cnt,min(min(partition$train$x)),max(max(partition$train$x))),partition$train$y,apply(cv.beta.mat.fl,2,FUN=median),0,ylab,main=paste('fl',fileName,'median',sep='_'),xlab='prediction')
+  plot.scatter(group.rescale(partition$train$x,0,1,bin.cnt,min(min(partition$train$x)),max(max(partition$train$x))),partition$train$y,apply(cv.beta.mat.fl,2,FUN=mean),0,ylab,main=paste('fl',fileName,'mean',sep='_'),xlab='prediction')
+  correlations.fl[1,2] <- median.cor$cor[1];correlations.fl[2,2] <- median.cor$cor[2];
+  ####################################################################
+
+  plot.scatter(partition$train$x,partition$train$y,cv.beta.mat.nl$best.nl,0,ylab,main=paste('nl',fileName,sep='_'),xlab='prediction')
+  median.cor <- plot.scatter(partition$train$x,partition$train$y,apply(cv.beta.mat.nl$cv.beta,2,FUN=median),0,ylab,main=paste('nl',fileName,'median',sep='_'),xlab='prediction')
+  plot.scatter(partition$train$x,partition$train$y,apply(cv.beta.mat.nl$cv.beta,2,FUN=mean),0,ylab,main=paste('nl',fileName,'mean',sep='_'),xlab='prediction')
+  correlations.nl[1,2] <- median.cor$cor[1];correlations.nl[2,2] <- median.cor$cor[2];
+  dev.off()
+print('done train data scatter plots')
+  ##########################################################################################
+  #####################     scatter plots entire data      #################################
+  ##########################################################################################
+  pdf(paste(outPath,'scatterPlots_entireData_',fileName,'.pdf',sep=''))
+  plot.scatter(group.rescale(rbind(partition$train$x,partition$test$x),0,1,bin.cnt,min(min(partition$train$x)),max(max(partition$train$x))),c(partition$train$y,partition$test$y),fl$cv.fl$bestsol$beta,0,ylab,main=paste('fl',fileName,sep='_'),xlab='prediction')
+  median.cor <- plot.scatter(group.rescale(rbind(partition$train$x,partition$test$x),0,1,bin.cnt,min(min(partition$train$x)),max(max(partition$train$x))),c(partition$train$y,partition$test$y),apply(cv.beta.mat.fl,2,FUN=median),0,ylab,main=paste('fl',fileName,'median',sep='_'),xlab='prediction')
+  plot.scatter(group.rescale(rbind(partition$train$x,partition$test$x),0,1,bin.cnt,min(min(partition$train$x)),max(max(partition$train$x))),c(partition$train$y,partition$test$y),apply(cv.beta.mat.fl,2,FUN=mean),0,ylab,main=paste('fl',fileName,'mean',sep='_'),xlab='prediction')
+  correlations.fl[1,3] <- median.cor$cor[1];correlations.fl[2,3] <- median.cor$cor[2];
+
+####################################################################
+
+  plot.scatter(rbind(partition$train$x,partition$test$x),c(partition$train$y,partition$test$y),cv.beta.mat.nl$best.nl,0,ylab,main=paste('nl',fileName,sep='_'),xlab='prediction')
+  median.cor <- plot.scatter(rbind(partition$train$x,partition$test$x),c(partition$train$y,partition$test$y),apply(cv.beta.mat.nl$cv.beta,2,FUN=median),0,ylab,main=paste('nl',fileName,'median',sep='_'),xlab='prediction')
+  plot.scatter(rbind(partition$train$x,partition$test$x),c(partition$train$y,partition$test$y),apply(cv.beta.mat.nl$cv.beta,2,FUN=mean),0,ylab,main=paste('nl',fileName,'mean',sep='_'),xlab='prediction')
+  correlations.nl[1,3] <- median.cor$cor[1];correlations.nl[2,3] <- median.cor$cor[2];
+  dev.off()
+  print('done entire data scatter plots')
+  ##########################################################################################
+  ##########################################################################################
+  ##########################################################################################
+  if(F){
   ##########################################################################################
   #####################      scatter plots test data      ##################################
   ##########################################################################################
@@ -165,6 +249,23 @@ for(p in seq(1,length(inPaths),2)){
   dev.off()
 print('done test data scatter plots')
   ##########################################################################################
+  #####################      scatter plots train data      ##################################
+  ##########################################################################################
+  cv.beta.mat.fl <- fl$cv.fl$bestsol$cv.beta.mat
+  pdf(paste(outPath,'scatterPlots_train_',fileName,'.pdf',sep=''))
+  median.cor <- plot.scatter(group.rescale(partition$train$x,0,1,bin.cnt,min(min(partition$train$x)),max(max(partition$train$x))),partition$train$y,fl$cv.fl$bestsol$beta,0,ylab,main=paste('fl',fileName,sep='_'),xlab='prediction')
+  plot.scatter(group.rescale(partition$train$x,0,1,bin.cnt,min(min(partition$train$x)),max(max(partition$train$x))),partition$train$y,apply(cv.beta.mat.fl,2,FUN=median),0,ylab,main=paste('fl',fileName,'median',sep='_'),xlab='prediction')
+  plot.scatter(group.rescale(partition$train$x,0,1,bin.cnt,min(min(partition$train$x)),max(max(partition$train$x))),partition$train$y,apply(cv.beta.mat.fl,2,FUN=mean),0,ylab,main=paste('fl',fileName,'mean',sep='_'),xlab='prediction')
+  correlations.fl[1,2] <- median.cor$cor[1];correlations.fl[2,2] <- median.cor$cor[2];
+  ####################################################################
+
+  plot.scatter(cbind(1,partition$train$x),partition$train$y,cv.beta.mat.nl$best.nl,0,ylab,main=paste('nl',fileName,sep='_'),xlab='prediction')
+  median.cor <- plot.scatter(partition$train$x,partition$train$y,apply(cv.beta.mat.nl$cv.beta,2,FUN=median),0,ylab,main=paste('nl',fileName,'median',sep='_'),xlab='prediction')
+  plot.scatter(partition$train$x,partition$train$y,apply(cv.beta.mat.nl$cv.beta,2,FUN=mean),0,ylab,main=paste('nl',fileName,'mean',sep='_'),xlab='prediction')
+  correlations.nl[1,2] <- median.cor$cor[1];correlations.nl[2,2] <- median.cor$cor[2];
+  dev.off()
+print('done train data scatter plots')
+  ##########################################################################################
   #####################     scatter plots entire data      #################################
   ##########################################################################################
   pdf(paste(outPath,'scatterPlots_entireData_',fileName,'.pdf',sep=''))
@@ -179,6 +280,7 @@ print('done test data scatter plots')
   plot.scatter(rbind(partition$train$x,partition$test$x),c(partition$train$y,partition$test$y),apply(cv.beta.mat.nl$cv.beta,2,FUN=mean),0,ylab,main=paste('nl',fileName,'mean',sep='_'),xlab='prediction')
   dev.off()
   print('done entire data scatter plots')
+  }
   ##########################################################################################
   ##########################################################################################
   ##########################################################################################
@@ -196,6 +298,9 @@ print('done test data scatter plots')
   ctr <- ctr + 1
   bestGammasIdx <- bestGammasIdx + 1
 }
+write.table(correlations.nl,paste(outPath,'/correlations_nl_',fileName,'.txt',sep=''),row.names=c('spearman','pearson'),col.names=c('test','train','entire'))
+write.table(correlations.fl,paste(outPath,'/correlations_fl_',fileName,'.txt',sep=''),row.names=c('spearman','pearson'),col.names=c('test','train','entire'))
+write.table(rbind(c('method','fl_test','fl_train','fl_entire'),cbind(c('spearman','pearson'),correlations.fl),c('method','nl_test','nl_train','nl_entire'),cbind(c('spearman','pearson'),correlations.nl)),paste(outPath,'/correlations_all_',fileName,'.txt',sep=''))
 save(fl.allModels,nl.allModels,file=paste(outPath,'/fl_nl_allModels.RData',sep=''))
 if(length(datasets)>1){
   pdf(paste(outPath,'/cross_models.pdf',sep=''))
@@ -205,3 +310,5 @@ if(length(datasets)>1){
 }
 print('best gamma(s)')
 print(bestgammas)
+print(warnings())
+print(c('maxsteps',maxsteps))
