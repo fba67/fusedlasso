@@ -132,7 +132,6 @@ cv.beta.matrix.nl <- function(x,y,nfold){
 	  beta <- predict(fit,type='coef')
 	  beta.mat[i,] <- as.numeric(beta)
 	}
-  print(c('dim(beta.mat)',dim(beta.mat)))
 	nl <- glmnet(x,y,lambda=lambda.opt)
 	nl.beta <- as.numeric(predict(nl,type='coef'))
 	print(c('length(nl.beta)',length(nl.beta)))
@@ -186,9 +185,10 @@ beta.interpolate <- function(lambda,all.lambdas,beta){#all.lambdas must be sorte
     return(beta.new)
 }
 
-cv.fusedlasso.minOfall <- function(x,y,method=c("fusedlasso","fusedlasso1d","fusedlasso2d"),nfold=10,gr,...){
+##used to be cv.fusedlasso.minOfall, but after discussing with Marcel, we decided to use this old implementation again
+cv.fusedlasso <- function(x,y,bin.cnt,method=c("fusedlasso","fusedlasso1d","fusedlasso2d"),nfold=10,gr,...){
   pkgTest("genlasso")
-  pkgTest("foreach")
+  pkgTest("parallel")
   n <- nrow(x)
   p <- ncol(x)
   x <- group.rescale(x,0,1,bin.cnt)
@@ -203,12 +203,15 @@ cv.fusedlasso.minOfall <- function(x,y,method=c("fusedlasso","fusedlasso1d","fus
   for(i in seq(nfold)) train[[i]] <- list(x=x[-outidx[[i]],],y=y[-outidx[[i]]])
   for(i in seq(nfold)) validation[[i]] <- list(x=as.matrix(x[outidx[[i]],]),y=y[outidx[[i]]])
 
-  cv.fl <- lapply(seq(nfold),function(i)do.call(method[1],list(X=cbind(1,train[[i]]$x),y=train[[i]]$y,graph=gr,...)))
+  cl.cv <- makeCluster(mc <- getOption("cl.cores",length(train)))
+  #parallel::clusterExport(cl=cl,varlist=c("fusedlasso","gr","method","genlasso","gammas","maxsteps","my.minlam"),envir = environment())
+  parallel::clusterExport(cl=cl.cv,varlist=c("fusedlasso","gr","method","gammas","maxsteps","my.minlam"),envir = environment())
+  cv.fl <- parLapply(cl.cv,train,function(tr)do.call(method[1],list(X=cbind(1,tr$x),y=tr$y,graph=gr,...)))
+  stopCluster(cl.cv)
 #  cv.fl <- foreach (i=seq(nfold),.packages = "genlasso") %dopar% do.call(method[1],list(X=train[[i]]$x,y=train[[i]]$y,graph=gr,...))
   print('finished running do.call(flasso,...)')
   ctr <- 1
   mses <- list()
-  lambda.table <- NULL
   best.rss <- Inf
   cv.beta.mat <- NULL
   for(fl in cv.fl){
@@ -223,7 +226,6 @@ cv.fusedlasso.minOfall <- function(x,y,method=c("fusedlasso","fusedlasso1d","fus
 			optimal.beta <- fl$beta[,lambda.min.idx]
 			validationMSE <- best.rss
 	}
-	lambda.table <- cbind(lambda.table,rbind(rep(ctr,times = lambda.cnt),fl$lambda,mses[[ctr]]))
     ctr <- ctr + 1
   }
   df.optimal <- summary(best.fl)[lambda.min.idx,1]
@@ -232,9 +234,10 @@ cv.fusedlasso.minOfall <- function(x,y,method=c("fusedlasso","fusedlasso1d","fus
   print('done saving in cv.fusedlasso')
   return(list(bestobj=best.fl,bestsol=bestSol,cv.beta.mat=cv.beta.mat))
 }
-cv.fusedlasso <- function(x,y,method=c("fusedlasso","fusedlasso1d","fusedlasso2d"),nfold=10,gr,...){
+cv.fusedlasso.interpolationOnLambdas <- function(x,y,bin.cnt,method=c("fusedlasso","fusedlasso1d","fusedlasso2d"),nfold=10,gr,...){
   pkgTest("genlasso")
   pkgTest("foreach")
+  pkgTest("parallel")
   n <- nrow(x)
   p <- ncol(x)
   x <- group.rescale(x,0,1,bin.cnt)
@@ -249,17 +252,21 @@ cv.fusedlasso <- function(x,y,method=c("fusedlasso","fusedlasso1d","fusedlasso2d
   for(i in seq(nfold)) train[[i]] <- list(x=x[-outidx[[i]],],y=y[-outidx[[i]]])
   for(i in seq(nfold)) validation[[i]] <- list(x=as.matrix(x[outidx[[i]],]),y=y[outidx[[i]]])
 
-  cv.fl <- lapply(seq(nfold),function(i)do.call(method[1],list(X=cbind(1,train[[i]]$x),y=train[[i]]$y,graph=gr,...)))
+  cl.cv <- parallel::makeCluster(mc <- getOption("cl.cores",length(train)))
+  parallel::clusterExport(cl=cl.cv,varlist=c("fusedlasso","gr","method","gammas","maxsteps","my.minlam"),envir = environment())
+  cv.fl <- parLapply(cl.cv,train,function(tr)do.call(method[1],list(X=cbind(1,tr$x),y=tr$y,graph=gr,...)))
+  stopCluster(cl.cv)
+  #cv.fl <- lapply(seq(nfold),function(i)do.call(method[1],list(X=cbind(1,train[[i]]$x),y=train[[i]]$y,graph=gr,...)))
 #  cv.fl <- foreach (i=seq(nfold),.packages = "genlasso") %dopar% do.call(method[1],list(X=train[[i]]$x,y=train[[i]]$y,graph=gr,...))
   print('finished running do.call(flasso,...)')
   ctr <- 1
   mses <- list()
   lambda.table <- NULL
   for(fl in cv.fl){
-	lambda.cnt <- ncol(fl$fit)
+	  lambda.cnt <- ncol(fl$fit)
     predictions <- sapply(1:lambda.cnt,function(i) return(as.matrix(cbind(1,validation[[ctr]]$x)) %*% fl$beta[,i]))
-	mses[[ctr]] <- t(sapply(1:lambda.cnt,function(i) return(1/length(predictions[,i])*sum((predictions[,i]-validation[[ctr]]$y)^2))))
-	lambda.table <- cbind(lambda.table,rbind(rep(ctr,times = lambda.cnt),fl$lambda,mses[[ctr]]))
+	  mses[[ctr]] <- t(sapply(1:lambda.cnt,function(i) return(1/length(predictions[,i])*sum((predictions[,i]-validation[[ctr]]$y)^2))))
+	  lambda.table <- cbind(lambda.table,rbind(rep(ctr,times = lambda.cnt),fl$lambda,mses[[ctr]]))
     ctr <- ctr + 1
   }
   lambdas.cnt <- ncol(lambda.table)
@@ -271,18 +278,17 @@ cv.fusedlasso <- function(x,y,method=c("fusedlasso","fusedlasso1d","fusedlasso2d
     all.cv.rss[lambda.table.ordered[1,i],i] <- lambda.table.ordered[3,i]
     rest.of.idxs <- seq(nfold)[-lambda.table.ordered[1,i]]
     for(j in rest.of.idxs){
-	  hit.idx <- which(lambda.table.ordered[1,]==j)
-     hit <- findInterval(lambda.table.ordered[2,i],lambda.table.ordered[2,hit.idx])[1];
-#	  if(F){#(hit==0){ # the lambda is smaller than the range of lambdas searched in fold #j
-	 if(hit == 0){
-		  hit <- hit.idx[1]
-	  	  all.cv.rss[j,i] <- lambda.table.ordered[3,hit]
-	  }else{
+	    hit.idx <- which(lambda.table.ordered[1,]==j)
+      hit <- findInterval(lambda.table.ordered[2,i],lambda.table.ordered[2,hit.idx])[1];
+      if(hit==0){ # the lambda is smaller than the range of lambdas searched in fold #j
+  		  hit <- hit.idx[1]
+  	   all.cv.rss[j,i] <- lambda.table.ordered[3,hit]
+      }else{
 #		  ord.inc <- order(cv.fl[[j]]$lambda)
 		  #beta.interpolated <- beta.interpolate(lambda.table.ordered[2,i],cv.fl[[j]]$lambda[ord.inc],cv.fl[[j]]$beta[,ord.inc])
-	  	  print(class(cv.fl[[j]]))
+	  	print(class(cv.fl[[j]]))
 		  print(class(lambda.table.ordered[2,i]))
-	  	  beta.interpolated <- coef.genlasso(cv.fl[[j]],lambda.table.ordered[2,i])$beta
+	  	beta.interpolated <- coef.genlasso(cv.fl[[j]],lambda.table.ordered[2,i])$beta
 		  all.beta.interpolated <- cbind(all.beta.interpolated,beta.interpolated)
 
 
@@ -291,9 +297,9 @@ cv.fusedlasso <- function(x,y,method=c("fusedlasso","fusedlasso1d","fusedlasso2d
 		  #all.cv.rss[j,i] <- lambda.table.ordered[3,hit.idx[hit]]
 		  all.cv.rss[j,i] <- 1/length(pred)*sum((pred-validation[[j]]$y)^2)
 		  #all.cv.rss[j,i] <- get.rss(cv.fl[[j]]$call$y,pred)
-	  }
+      }
+    }
 	}
-  }
   cvm <- colMeans(all.cv.rss)
   #plot(log2(cvm+1),type='l',col='blue',main=cv.fl[[1]]$call$gamma)
   lambda.min.idx <- which.min(cvm)[1]
@@ -304,7 +310,7 @@ cv.fusedlasso <- function(x,y,method=c("fusedlasso","fusedlasso1d","fusedlasso2d
   df.optimal <- summary(cv.fl[[lambda.table.ordered[1,lambda.min.idx]]])[best.model.idx,1]
   bestSol <- list(lambda=lambda.optimal,beta=beta.optimal,df=df.optimal,validationMSE=cvm[lambda.min.idx])
   best.fl <- cv.fl[[lambda.table.ordered[1,lambda.min.idx]]]
-  save(lambda.table,lambda.table.ordered,cv.fl,cvm,all.beta.interpolated,all.cv.rss,file=paste(outPath,'/cv.flasso.test_',cv.fl[[1]]$call$gamma,'.RData',sep=''))
+  #save(lambda.table,lambda.table.ordered,cv.fl,cvm,all.beta.interpolated,all.cv.rss,file=paste(outPath,'/cv.flasso.test_',cv.fl[[1]]$call$gamma,'.RData',sep=''))
   print('done saving in cv.fusedlasso')
   return(list(bestobj=best.fl,bestsol=bestSol,cv.beta.mat=cv.beta.mat,lambda.table.ordered=lambda.table.ordered,cvm=cvm))
 }
