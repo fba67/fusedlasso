@@ -1,6 +1,6 @@
 set.seed(1)
 #trials <- 10
-maxsteps = 1000
+maxsteps = 100
 my.minlam <- 10^(-5)
 nfold <- 10
 outerCV_folds <- 5
