@@ -1,4 +1,18 @@
 source('UtilityFunctions_sequentialCV.R')
+get.outerCV.partitions <-function(x,y,n.folds=10){
+  fold.size <- ceiling(nrow(x)/n.folds)
+  partitions <- list();
+  for(i in seq(n.folds)){
+    start <- (i-1)*fold.size+1;
+    end <- i*fold.size;
+    if(end > nrow(x))
+      end <- nrow(x);
+    test.idx <- seq(start,end)
+    train.idx <- seq(nrow(x))[-test.idx]
+    partitions[[i]] <- list(train=list(x=x[train.idx,],y=y[train.idx]),test=list(x=x[test.idx,],y=y[test.idx]))
+  }
+  return(partitions)
+}
 get.gammas <- function(gammas,best.gamma,fixedSteps=20){
 		print(c('inside get.gammas',gammas))
 		g.min <- min(gammas)
@@ -18,8 +32,130 @@ get.gammas <- function(gammas,best.gamma,fixedSteps=20){
 				return(best.gamma)
 		return(seq(new.interval[1],new.interval[2],stepSize))
 }
-#maxsteps = 2000
 fusedlasso.main <- function(x,y,bin.cnt,edgs,gammas){#in parallel
+  ###To compute the fusedlasso for the given data
+  ###Input:
+  #####x: input space (the set of features)
+  #####y: target (response) vector
+  #####bin.cnt: the No of bins
+  #####edgs: the edges to construct the adjacency graph for fusedlasso
+  #####gammas: a numeric vector representing the gammas for fusedlasso
+  #pkgTest("doSNOW")
+  pkgTest("genlasso")
+  pkgTest("parallel")
+  pkgTest("scatterplot3d")
+
+  clust.cnt <- nfold*length(gammas)
+  print(clust.cnt)
+  if(clust.cnt >= 30)
+		  clust.cnt <- 30
+  print(clust.cnt)
+  
+  #pkgTest("cluster")
+  hist.cnt <- ceiling(ncol(x)/bin.cnt) #the No of histone modifications
+  best.rss <- Inf #keeps the best ratio
+  fl.best <- NULL #keeps the best fusedlasso model based on the ratio
+
+  edgs <- edgs + 1
+  edgs <- c(1,1,edgs)
+
+#  if(is.null(graph))
+  gr <- graph(edgs,directed = F)
+  #x <- group.rescale(x,0,1,bin.cnt)
+  prev.rss <- Inf;
+  curr.rss <- 0;
+  stop.thresh <- 10^(-3)
+  total.gammas.len <- 0
+  search.depth <- 1
+  cl <- makeCluster(min(length(gammas),(detectCores()-1)))#,"FORK")
+  while((prev.rss - curr.rss) > stop.thresh){
+    clusterExport(cl,list("cv.fusedlasso","x","y","bin.cnt","nfold","gammas","maxsteps","my.minlam","pkgTest","group.rescale","gr"),envir=environment())
+    fl.res <- parSapply(cl,gammas,function(gamma){return(cv.fusedlasso(x,y,bin.cnt,method="fusedlasso",nfold=nfold,gr,gamma=gamma,maxsteps = maxsteps,minlam=my.minlam))})
+    for(gamma.ctr in seq(length(gammas))){
+		  if(fl.res[,gamma.ctr]$bestsol$validationMSE < best.rss){
+				  best.rss <- fl.res[,gamma.ctr]$bestsol$validationMSE;
+				  gamma.best <- gammas[gamma.ctr];
+          fl.best <- fl.res[,gamma.ctr]
+		  }
+    }
+    best.gamma <- gamma.best
+    prev.rss <- curr.rss
+    curr.rss <- best.rss
+    gammas <- get.gammas(gammas,best.gamma)
+    print(paste('search.depth=',search.depth,sep=''))
+    search.depth <- search.depth + 1
+    if(length(gammas == 1) && gammas == best.gamma){
+		  flag <- F
+		  print(c('gammas=',gammas,'best.gamma',best.gamma))
+		  print('single gamma set')
+		  bestGamma <- best.gamma
+		  #all.cols <- c(all.cols,'red')
+		  break;
+    }
+  }
+  stopCluster(cl)
+  if(flag){
+  	print('(prev.rss - curr.rss) < stop.thresh')
+  }
+  print(c("outPath:",outPath))
+  save(fl.res,file=paste(outPath,'fl.res.RData',sep=''))
+  print(class(fl.res))
+  err.best <- best.rss
+  if(flag)
+	bestGamma <- gamma.best
+  print(bestGamma)
+  x <- group.rescale(x,0,1,bin.cnt)
+  valid.lambda.range <- T
+  new.maxsteps <- maxsteps
+  while(valid.lambda.range){
+	  fl <- do.call("fusedlasso",list(X=cbind(1,x),y=y,graph=gr,gamma=bestGamma,maxsteps = new.maxsteps,minlam=my.minlam))
+  	  if(min(fl$lambda) < fl.best$bestsol$lambda && max(fl$lambda) > fl.best$bestsol$lambda){
+			  beta.optimal <- coef.genlasso(fl,fl.best$bestsol$lambda)$beta
+  			  inc.order.idx <- order(fl$lambda)
+			  beta.inc.ordered <- fl$beta[,inc.order.idx]
+			  valid.lambda.range <- F
+  			  optimal.lambda.idx <- findInterval(fl.best$bestsol$lambda,fl$lambda[inc.order.idx])
+	  }
+	  new.maxsteps <- 2*new.maxsteps
+  }
+  print('in fusedloass.main')
+  pred <- cbind(1,x) %*% beta.optimal
+  validationRMSE <- get.rss(pred,y) 
+  #bestsol <- list(lambda=fl.best$bestsol$lambda,beta=beta.inc.ordered[,optimal.lambda.idx],df=summary(fl)[optimal.lambda.idx,1],validationRMSE=validationRMSE,cv.beta.mat=fl.best$cv.beta.mat,cv.bestERR=err.best)
+  bestsol <- list(lambda=fl.best$bestsol$lambda,beta=beta.optimal,df=summary(fl)[optimal.lambda.idx,1],validationRMSE=validationRMSE,cv.beta.mat=fl.best$cv.beta.mat,cv.bestERR=err.best)
+  fl.best <- list(bestobj=fl,bestsol=bestsol)
+  return(list(cv.fl=fl.best,gamma.best=bestGamma))
+  for(gamma in gammas){
+    print(paste('gamma: ',gamma,sep=''))
+    print('Computing flasso...')
+    cv.fl <- cv.fusedlasso(x,y,method="fusedlasso",nfold=nfold,gr,gamma=gamma,maxsteps = maxsteps)
+    print('Done computing flasso')
+    
+    df <- ncol(x) - cv.fl$bestsol$df
+    rss <- cv.fl$bestsol$validationMSE
+    if(err.best > rss){
+      err.best <- rss
+      fl.best <- cv.fl
+      bestGamma <- gamma
+    }
+  }
+  x <- group.rescale(x,0,1,bin.cnt)
+  fl <- do.call("fusedlasso",list(X=cbind(1,x),y=y,graph=gr,gamma=bestGamma,maxsteps = maxsteps))
+  inc.order.idx <- order(fl$lambda)
+  optimal.lambda.idx <- findInterval(fl.best$bestsol$lambda,fl$lambda[inc.order.idx])
+  if(optimal.lambda.idx == 0){
+    optimal.lambda.idx <- 1
+  }
+  print(c('optimal.lambda.idx',optimal.lambda.idx))
+  beta.inc.ordered <- fl$beta[,inc.order.idx]
+  print('in fusedloass.main')
+  pred <- cbind(1,x) %*% beta.inc.ordered[,optimal.lambda.idx]
+  validationRMSE <- get.rss(pred,y) 
+  bestsol <- list(lambda=fl.best$bestsol$lambda,beta=beta.inc.ordered[,optimal.lambda.idx],df=summary(fl)[optimal.lambda.idx,1],validationRMSE=validationRMSE,cv.beta.mat=fl.best$cv.beta.mat)
+  fl.best <- list(bestobj=fl,bestsol=bestsol)
+  return(list(cv.fl=fl.best,gamma.best=bestGamma))
+}
+fusedlasso.main_ForLambdaInterpolation <- function(x,y,bin.cnt,edgs,gammas){#in parallel
   ###To compute the fusedlasso for the given data
   ###Input:
   #####x: input space (the set of features)
@@ -63,24 +199,21 @@ fusedlasso.main <- function(x,y,bin.cnt,edgs,gammas){#in parallel
   print(length(gammas))
 #  clusterExport(cl=cluster,varlist=c('all.lens','all.lambdas','all.cvms','all.gammas.info','all.gammas','all.rss','best.rss'))
   #fl.res <- parLapply(cluster,gammas,function(gamma){return(cv.fusedlasso(x,y,method="fusedlasso",nfold=nfold,gr,gamma=gamma,maxsteps = maxsteps))})
-  prev.rss <- Inf;
-  curr.rss <- 0;
-  stop.thresh <- 10^(-3)
   total.gammas.len <- 0
   search.depth <- 1
-  while((prev.rss - curr.rss) > stop.thresh){
-  cluster <- makeCluster(min(length(gammas),detectCores()),"FORK")
-  fl.res <- parLapply(cluster,gammas,function(gamma){return(cv.fusedlasso(x,y,method="fusedlasso",nfold=nfold,gr,gamma=gamma,maxsteps = maxsteps,minlam=my.minlam))})
+  cluster <- makeCluster(min(length(gammas),max((detectCores() - 1),1)))#,"FORK")
+  clusterExport(cluster,list("cv.beta.matrix.fl","cv.fusedlasso.interpolationOnLambdas","x","y","bin.cnt","nfold","gammas","maxsteps","my.minlam","pkgTest","group.rescale","gr"),envir=environment())
+  fl.res <- parSapply(cluster,gammas,function(gamma){return(cv.fusedlasso.interpolationOnLambdas(x,y,bin.cnt,method="fusedlasso",nfold=nfold,gr,gamma=gamma,maxsteps = maxsteps,minlam=my.minlam))})
   for(gamma.ctr in seq(length(gammas))){
-		  lambda.table.ordered <- fl.res[[gamma.ctr]]$lambda.table.ordered
-		  cvm <- fl.res[[gamma.ctr]]$cvm
+		  lambda.table.ordered <- fl.res[,gamma.ctr]$lambda.table.ordered
+		  cvm <- fl.res[,gamma.ctr]$cvm
 		  all.gammas.info[[gamma.ctr]] <- lambda.table.ordered;
 		  all.gammas <- c(all.gammas,rep(gammas[gamma.ctr],times=length(cvm)));
 		  lambda.idx <- which.min(cvm);
 		  if(cvm[lambda.idx] < best.rss){
 				  best.rss <- cvm[lambda.idx];
 				  gamma.best <- gammas[gamma.ctr];
-				  lambda.best <- lambda.table.ordered[lambda.idx]
+				  lambda.best <- lambda.table.ordered[2,lambda.idx]
 		  }
 		  all.lens <- c(all.lens,length(cvm));
 		  all.cvms <- c(all.cvms,cvm)
@@ -89,11 +222,11 @@ fusedlasso.main <- function(x,y,bin.cnt,edgs,gammas){#in parallel
 		  all.cols <- c(all.cols,cols)
   }
   best.gamma <- gamma.best
-  prev.rss <- curr.rss
-  curr.rss <- best.rss
+  cv.fl <- fl.res[,which(gammas == best.gamma)]
   total.gammas.len <- total.gammas.len + length(gammas)
-  gammas <- get.gammas(gammas,best.gamma)
-  print(c('outside get.gammmas',gammas))
+  gammas <- seq(best.gamma/2,3/2*best.gamma,by=.01)
+  #gammas <- get.gammas(gammas,best.gamma)
+  
   print(paste('search.depth=',search.depth,sep=''))
   search.depth <- search.depth + 1
   if(length(gammas == 1) && gammas == best.gamma)
@@ -103,23 +236,12 @@ fusedlasso.main <- function(x,y,bin.cnt,edgs,gammas){#in parallel
 		  print('single gamma set')
 		  bestGamma <- best.gamma
 		  #all.cols <- c(all.cols,'red')
-		  break;
+		  #break;
   }
-  }
-  if(flag){
-  	print('(prev.rss - curr.rss) < stop.thresh')
-  		  #all.cols <- c(all.cols,rainbow(length(gammas)))
-  }
-  #for(i in seq(length(all.gammas.info)))all.lambdas <- c(all.lambdas,all.gammas.info[[i]][2,])
-  #for(i in seq(length(all.gammas.info)))all.rss <- c(all.rss,all.gammas.info[[i]][3,])
-#  save(all.lambdas,all.gammas,all.cvms,all.gammas.info,file=paste(outPath,'optimizationPath1.RData',sep=''))
+  if(F){
   for(i in seq(length(all.gammas.info)))all.lambdas <- c(all.lambdas,all.gammas.info[[i]][2,])
   for(i in seq(length(all.gammas.info)))all.rss <- c(all.rss,all.gammas.info[[i]][3,])
-  print(lambda.best)
-  #cols.units <- rainbow(total.gammas.len)
-  #cols.units <- c(rep('black',times=total.gammas.len),rainbow(length(gammas)))
-  #all.cols <- NULL
-  #for(i in seq(length(all.lens)))all.cols <- c(all.cols,rep(cols.units[i],times=all.lens[i]))
+  print(paste("lambda.best=",lambda.best))
   save(gammas,total.gammas.len,search.depth,all.lambdas,all.gammas,all.cvms,all.cols,all.gammas.info,file=paste(outPath,'optimizationPath.RData',sep=''))
   png(paste(outPath,'regularizationPath_allGamma_1.png',sep=''))
    scatterplot3d(log10(all.lambdas),log10(all.gammas),log10(all.cvms),pch=20,color=all.cols,box=F)
@@ -139,18 +261,20 @@ fusedlasso.main <- function(x,y,bin.cnt,edgs,gammas){#in parallel
   png(paste(outPath,'regularizationPath_allGamma_6.png',sep=''))
    scatterplot3d(log10(all.cvms),log10(all.gammas),log10(all.lambdas),pch=20,color=all.cols,box=F)
   dev.off()
-#  stopCluster(cluster)
-save(fl.res,file=paste(outPath,'fl.res.RData',sep=''))
-print(class(fl.res))
-err <- sapply(seq(length(fl.res)),function(i)fl.res[[i]]$bestsol$validationMSE)
-best.idx <- which.min(err)
-err.best <- err[best.idx]
-fl.best <- fl.res[[best.idx]]
-if(flag)
-	bestGamma <- gammas[best.idx]
-print(bestGamma)
+  }
+  stopCluster(cluster)
+  save(fl.res,file=paste(outPath,'fl.res.RData',sep=''))
+  return(list(cv.fl=cv.fl,gamma.best=bestGamma,best.lambda=lambda.best))
+  print(class(fl.res))
+  err <- sapply(seq(ncol(fl.res)),function(i)fl.res[,i]$bestsol$validationMSE)
+  best.idx <- which.min(err)
+  err.best <- err[best.idx]
+  fl.best <- fl.res[,best.idx]
+  if(flag)
+  	bestGamma <- gammas[best.idx]
+  print(bestGamma)
   x <- group.rescale(x,0,1,bin.cnt)
-  valid.lambda.range <- T
+  valid.lambda.range <- F#Initially it was True, but I don't want the following while loop to execute anymore, therefore I changed it to False
   new.maxsteps <- maxsteps
   while(valid.lambda.range){
 	  fl <- do.call("fusedlasso",list(X=cbind(1,x),y=y,graph=gr,gamma=bestGamma,maxsteps = new.maxsteps,minlam=my.minlam))
@@ -163,29 +287,13 @@ print(bestGamma)
 	  }
 	  new.maxsteps <- 2*new.maxsteps
   }
-  if(F){
-  inc.order.idx <- order(fl$lambda)
-  beta.inc.ordered <- fl$beta[,inc.order.idx]
-  optimal.lambda.idx <- findInterval(fl.best$bestsol$lambda,fl$lambda[inc.order.idx])
-  if(optimal.lambda.idx == 0){
-    optimal.lambda.idx <- 1
-  }
-  if(min(fl$lambda) < fl.best$bestsol$lambda && max(fl$lambda) > fl.best$bestsol$lambda){
-		  new.maxsteps <- new.maxsteps*2
-		  fl <- do.call("fusedlasso",list(X=cbind(1,x),y=y,graph=gr,gamma=bestGamma,maxsteps = new.maxsteps))
-	  beta.optimal <- coef.genlasso(fl,fl.best$bestsol$lambda)$beta
-  }else
-	  beta.optimal <- beta.inc.ordered[,optimal.lambda.idx]
-  
-  print(c('optimal.lambda.idx',optimal.lambda.idx))
-  }
   print('in fusedloass.main')
   pred <- cbind(1,x) %*% beta.optimal
   validationRMSE <- get.rss(pred,y) 
   #bestsol <- list(lambda=fl.best$bestsol$lambda,beta=beta.inc.ordered[,optimal.lambda.idx],df=summary(fl)[optimal.lambda.idx,1],validationRMSE=validationRMSE,cv.beta.mat=fl.best$cv.beta.mat,cv.bestERR=err.best)
-  bestsol <- list(lambda=fl.best$bestsol$lambda,beta=beta.optimal,df=summary(fl)[optimal.lambda.idx,1],validationRMSE=validationRMSE,cv.beta.mat=fl.best$cv.beta.mat,cv.bestERR=err.best)
+  bestsol <- list(lambda=fl.best$bestsol$lambda,beta=beta.optimal,validationRMSE=validationRMSE,cv.beta.mat=fl.best$cv.beta.mat,cv.bestERR=err.best)
   fl.best <- list(bestobj=fl,bestsol=bestsol)
-  return(list(cv.fl=fl.best,gamma.best=bestGamma))
+  return(list(cv.fl=fl.best,gamma.best=bestGamma,best.lambda=lambda.best))
 }
 
 fusedlasso.shuffling.par <- function(x,y,fl,shuffle.idx,bin.cnt,trial=20,percent=.8,cor.ret=T,rss.ret=T){
@@ -320,7 +428,7 @@ normalasso.shuffling <- function(x,y,bin.cnt,shuffle.idx,trials=20,percent=.8,co
 }
 
 
-normalasso.shuffling.par <- function(x,y,shuffle.idx,trial=20,percent=.8,cor.ret=T,rss.ret=T){
+normalasso.shuffling.par <- function(x,y,bin.cnt,shuffle.idx,trial=20,percent=.8,cor.ret=T,rss.ret=T){
   pkgTest("doSNOW")
   pkgTest("glmnet")
   #Shuffle the data "trials" times (in parallel)
@@ -370,6 +478,9 @@ plot.histone.coef <- function(beta,bin.cnt,feat.names,main.title){
   x.matrix <- t(sapply(seq(floor(length(x)/bin.cnt)),function(i) x[seq((i-1)*bin.cnt+1,i*bin.cnt,1)]))
     colnames(x.matrix) <- seq((-floor(bin.cnt)/2)+1,ceiling(bin.cnt/2),1)
     rownames(x.matrix) <- feat.names
+	if(nrow(x.matrix) == 1)
+			image(x.matrix)
+	else
 	  heatmap.2(x.matrix, dendrogram="none", Rowv=FALSE, Colv=FALSE,lwid = c(.5,.5,4.5,.3),lmat=rbind(c(4,4,3,0),c(0,2,1,0)),
 				    col = bluered(256), scale="none", key=TRUE, density.info="none",
 					    trace="none",  symm=F,symkey=T,symbreaks=T,colsep = 0:ncol(x.matrix),rowsep = 0:nrow(x.matrix),sepcolor = 'black',sepwidth = c(.001,.001),main=main.title)
