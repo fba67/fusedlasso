@@ -234,13 +234,14 @@ cv.fusedlasso <- function(x,y,bin.cnt,method=c("fusedlasso","fusedlasso1d","fuse
   print('done saving in cv.fusedlasso')
   return(list(bestobj=best.fl,bestsol=bestSol,cv.beta.mat=cv.beta.mat))
 }
-cv.fusedlasso.interpolationOnLambdas <- function(x,y,bin.cnt,method=c("fusedlasso","fusedlasso1d","fusedlasso2d"),nfold=10,gr,...){
+cv.fusedlasso.interpolationOnLambdas <- function(x,y,bin.cnt,method=c("fusedlasso","fusedlasso1d","fusedlasso2d"),nfold=10,gr,intercept_mode,...){
   pkgTest("genlasso")
   pkgTest("foreach")
   pkgTest("parallel")
   n <- nrow(x)
   p <- ncol(x)
-  x <- group.rescale(x,0,1,bin.cnt)
+  if(intercept_mode)
+    x <- group.rescale(x,0,1,bin.cnt)
   foldsz <- floor(n/nfold)
   if(foldsz<2){
     print(paste('Number of fold for CV (',nfold,') is too large with respect to the training size... Setting it to 2',sep=''))
@@ -254,7 +255,11 @@ cv.fusedlasso.interpolationOnLambdas <- function(x,y,bin.cnt,method=c("fusedlass
 
   cl.cv <- parallel::makeCluster(mc <- getOption("cl.cores",length(train)))
   parallel::clusterExport(cl=cl.cv,varlist=c("fusedlasso","gr","method","gammas","maxsteps","my.minlam"),envir = environment())
-  cv.fl <- parLapply(cl.cv,train,function(tr)do.call(method[1],list(X=cbind(1,tr$x),y=tr$y,graph=gr,...)))
+  if(intercept_mode){
+    cv.fl <- parLapply(cl.cv,train,function(tr)do.call(method[1],list(X=cbind(1,tr$x),y=tr$y,graph=gr,...)))
+  }else{
+    cv.fl <- parLapply(cl.cv,train,function(tr)do.call(method[1],list(X=tr$x,y=tr$y,graph=gr,...)))
+  }
   stopCluster(cl.cv)
   #cv.fl <- lapply(seq(nfold),function(i)do.call(method[1],list(X=cbind(1,train[[i]]$x),y=train[[i]]$y,graph=gr,...)))
 #  cv.fl <- foreach (i=seq(nfold),.packages = "genlasso") %dopar% do.call(method[1],list(X=train[[i]]$x,y=train[[i]]$y,graph=gr,...))
@@ -264,7 +269,11 @@ cv.fusedlasso.interpolationOnLambdas <- function(x,y,bin.cnt,method=c("fusedlass
   lambda.table <- NULL
   for(fl in cv.fl){
 	  lambda.cnt <- ncol(fl$fit)
+  if(intercept_mode){
     predictions <- sapply(1:lambda.cnt,function(i) return(as.matrix(cbind(1,validation[[ctr]]$x)) %*% fl$beta[,i]))
+  }else{
+    predictions <- sapply(1:lambda.cnt,function(i) return(as.matrix(validation[[ctr]]$x) %*% fl$beta[,i]))
+  }
 	  mses[[ctr]] <- t(sapply(1:lambda.cnt,function(i) return(1/length(predictions[,i])*sum((predictions[,i]-validation[[ctr]]$y)^2))))
 	  lambda.table <- cbind(lambda.table,rbind(rep(ctr,times = lambda.cnt),fl$lambda,mses[[ctr]]))
     ctr <- ctr + 1
@@ -293,7 +302,11 @@ cv.fusedlasso.interpolationOnLambdas <- function(x,y,bin.cnt,method=c("fusedlass
 
 
 #		  pred <- cv.fl[[j]]$call$X %*% beta.interpolated
-		  pred <- as.matrix(cbind(1,validation[[j]]$x)) %*% beta.interpolated
+          if(intercept_mode){
+		    pred <- as.matrix(cbind(1,validation[[j]]$x)) %*% beta.interpolated
+          }else{
+		    pred <- as.matrix(validation[[j]]$x) %*% beta.interpolated
+          }
 		  #all.cv.rss[j,i] <- lambda.table.ordered[3,hit.idx[hit]]
 		  all.cv.rss[j,i] <- 1/length(pred)*sum((pred-validation[[j]]$y)^2)
 		  #all.cv.rss[j,i] <- get.rss(cv.fl[[j]]$call$y,pred)

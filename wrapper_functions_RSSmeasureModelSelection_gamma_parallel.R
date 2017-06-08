@@ -155,7 +155,7 @@ fusedlasso.main <- function(x,y,bin.cnt,edgs,gammas){#in parallel
   fl.best <- list(bestobj=fl,bestsol=bestsol)
   return(list(cv.fl=fl.best,gamma.best=bestGamma))
 }
-fusedlasso.main_ForLambdaInterpolation <- function(x,y,bin.cnt,edgs,gammas){#in parallel
+fusedlasso.main_ForLambdaInterpolation <- function(x,y,bin.cnt,edgs,gammas,intercept_mode){#in parallel
   ###To compute the fusedlasso for the given data
   ###Input:
   #####x: input space (the set of features)
@@ -171,24 +171,19 @@ fusedlasso.main_ForLambdaInterpolation <- function(x,y,bin.cnt,edgs,gammas){#in 
   clust.cnt <- nfold*length(gammas)
   print(clust.cnt)
   if(clust.cnt >= 30)
-		  clust.cnt <- 30
+	  clust.cnt <- 30
   print(clust.cnt)
-#  cluster = makeCluster(clust.cnt,"FORK")
-#  registerDoSNOW(cluster)
-  
-#  pkgTest("cluster")
   hist.cnt <- ceiling(ncol(x)/bin.cnt) #the No of histone modifications
-  err.best <- Inf #keeps the best ratio
-  fl.best <- NULL #keeps the best fusedlasso model based on the ratio
+  err.best <- Inf
+  fl.best <- NULL #keeps the best fusedlasso model
 
-  edgs <- edgs + 1
-  edgs <- c(1,1,edgs)
+  if(intercept_mode){
+    edgs <- edgs + 1
+    edgs <- c(1,1,edgs)
+  }
 
 
-#  if(is.null(graph))
   gr <- graph(edgs,directed = F)
-#  x <- scale(x)
-  #x <- group.rescale(x,0,1,bin.cnt)
   all.lens <- NULL; all.lambdas <- NULL
   all.rss <- NULL
   all.cols <- NULL
@@ -203,7 +198,7 @@ fusedlasso.main_ForLambdaInterpolation <- function(x,y,bin.cnt,edgs,gammas){#in 
   search.depth <- 1
   cluster <- makeCluster(min(length(gammas),max((detectCores() - 1),1)))#,"FORK")
   clusterExport(cluster,list("cv.beta.matrix.fl","cv.fusedlasso.interpolationOnLambdas","x","y","bin.cnt","nfold","gammas","maxsteps","my.minlam","pkgTest","group.rescale","gr"),envir=environment())
-  fl.res <- parSapply(cluster,gammas,function(gamma){return(cv.fusedlasso.interpolationOnLambdas(x,y,bin.cnt,method="fusedlasso",nfold=nfold,gr,gamma=gamma,maxsteps = maxsteps,minlam=my.minlam))})
+  fl.res <- parSapply(cluster,gammas,function(gamma){return(cv.fusedlasso.interpolationOnLambdas(x,y,bin.cnt,method="fusedlasso",nfold=nfold,gr,intercept_mode,gamma=gamma,maxsteps = maxsteps,minlam=my.minlam))})
   for(gamma.ctr in seq(length(gammas))){
 		  lambda.table.ordered <- fl.res[,gamma.ctr]$lambda.table.ordered
 		  cvm <- fl.res[,gamma.ctr]$cvm
@@ -235,8 +230,6 @@ fusedlasso.main_ForLambdaInterpolation <- function(x,y,bin.cnt,edgs,gammas){#in 
 		  print(c('gammas=',gammas,'best.gamma',best.gamma))
 		  print('single gamma set')
 		  bestGamma <- best.gamma
-		  #all.cols <- c(all.cols,'red')
-		  #break;
   }
   if(F){
   for(i in seq(length(all.gammas.info)))all.lambdas <- c(all.lambdas,all.gammas.info[[i]][2,])
@@ -466,20 +459,21 @@ normalasso.shuffling.par <- function(x,y,bin.cnt,shuffle.idx,trial=20,percent=.8
   return(list(cv.nl=cv.nl))
 }
 
-plot.histone.coef <- function(beta,bin.cnt,feat.names,main.title){
+plot.histone.coef <- function(beta,bin.cnt,feat.names,main.title,intercept_mode){
   pkgTest("gplots")
   
   if(class(beta)[1]=="list")
-		  if(!is.null(beta$beta))
-				  beta <- beta$beta
-		  else stop("The beta variable must either be a list containing an element named beta or a numeric vector of beta coefficients of the regressioni model!")
-		  beta <- beta[2:length(beta)] #excluding intercept
+    if(!is.null(beta$beta))
+	  beta <- beta$beta
+    else stop("The beta variable must either be a list containing an element named beta or a numeric vector of beta coefficients of the regressioni model!")
+  if(intercept_mode)
+     beta <- beta[2:length(beta)] #excluding intercept
   x <- beta
   x.matrix <- t(sapply(seq(floor(length(x)/bin.cnt)),function(i) x[seq((i-1)*bin.cnt+1,i*bin.cnt,1)]))
     colnames(x.matrix) <- seq((-floor(bin.cnt)/2)+1,ceiling(bin.cnt/2),1)
     rownames(x.matrix) <- feat.names
 	if(nrow(x.matrix) == 1)
-			image(x.matrix)
+		image(x.matrix)
 	else
 	  heatmap.2(x.matrix, dendrogram="none", Rowv=FALSE, Colv=FALSE,lwid = c(.5,.5,4.5,.3),lmat=rbind(c(4,4,3,0),c(0,2,1,0)),
 				    col = bluered(256), scale="none", key=TRUE, density.info="none",
@@ -528,17 +522,19 @@ plot.histone.coef.pheatmap <- function(beta,bin.cnt,histone.name,...){
   pheatmap(histones,...)#,color=colors2,...)#,legend_breaks=bk,legend_labels=as.character(round(bk,3)),...)#quantile(bk,seq(0,1,length=length(bk)))
 }
 
-plot.stability.var <- function(cv.beta.mat.fl,cv.beta.mat.nl){
-  cv.beta.mat.fl <- cv.beta.mat.fl[,-1]#remove intercept
+plot.stability.var <- function(cv.beta.mat.fl,cv.beta.mat.nl,intercept_mode){
+  if(intercept_mode)
+    cv.beta.mat.fl <- cv.beta.mat.fl[,-1]#remove intercept
   cv.beta.mat.nl <- cv.beta.mat.nl[,-1]#remove intercept
   fl.var <- coef.variation(cv.beta.mat.fl)
   nl.var <- coef.variation(cv.beta.mat.nl)
   boxplot(list(FusedLASSO=fl.var,LASSO=nl.var),col=c('red','blue'),ylab='variance of non-zero CV coefs',main='Stability')
 }
 
-plot.stability <- function(cv.beta.mat.fl,cv.beta.mat.nl,bin.cnt,feature.name){
+plot.stability <- function(cv.beta.mat.fl,cv.beta.mat.nl,bin.cnt,feature.name,intercept_mode){
   par(mfrow = c(3,2))
-  cv.beta.mat.fl <- cv.beta.mat.fl[,-1]#remove intercept
+  if(intercept_mode)
+    cv.beta.mat.fl <- cv.beta.mat.fl[,-1]#remove intercept
   cv.beta.mat.nl <- cv.beta.mat.nl[,-1]#remove intercept
   range.max <- c(max(min(cv.beta.mat.fl),min(cv.beta.mat.nl)),max(max(cv.beta.mat.fl),max(cv.beta.mat.nl)))
   sapply(seq(length(feature.name)),function(i){boxplot(cv.beta.mat.fl[,seq((i-1)*bin.cnt,i*bin.cnt,1)],
@@ -639,8 +635,9 @@ plot.stability2 <- function(x,y,cv.fl,bin.cnt,trials,histone.names,shuffle.idx=N
 #  return(list(rss=RSS,cor=correlation))
 #}
 
-plot.scatter <- function(x,y,cv.fl,outlier.thresh,ylab='measured expr.',...){
-  x <- cbind(1,x)
+plot.scatter <- function(x,y,cv.fl,outlier.thresh,ylab='measured expr.',is_fl,intercept_mode,...){
+  if(!is_fl | intercept_mode)
+    x <- cbind(1,x)
   if(!is.list(cv.fl))
 	  pred <- x %*% cv.fl
   else
