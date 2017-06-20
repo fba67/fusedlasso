@@ -253,14 +253,14 @@ cv.fusedlasso.interpolationOnLambdas <- function(x,y,bin.cnt,method=c("fusedlass
   for(i in seq(nfold)) train[[i]] <- list(x=x[-outidx[[i]],],y=y[-outidx[[i]]])
   for(i in seq(nfold)) validation[[i]] <- list(x=as.matrix(x[outidx[[i]],]),y=y[outidx[[i]]])
 
-  cl.cv <- parallel::makeCluster(mc <- getOption("cl.cores",length(train)))
-  parallel::clusterExport(cl=cl.cv,varlist=c("fusedlasso","gr","method","gammas","maxsteps","my.minlam"),envir = environment())
+  #cl.cv <- parallel::makeCluster(mc <- getOption("cl.cores",length(train)))
+  #parallel::clusterExport(cl=cl.cv,varlist=c("fusedlasso","gr","method","gammas","maxsteps","my.minlam"),envir = environment())
   if(intercept_mode){
-    cv.fl <- parLapply(cl.cv,train,function(tr)do.call(method[1],list(X=cbind(1,tr$x),y=tr$y,graph=gr,...)))
+    cv.fl <- lapply(train,function(tr)do.call(method[1],list(X=cbind(1,tr$x),y=tr$y,graph=gr,...)))
   }else{
-    cv.fl <- parLapply(cl.cv,train,function(tr)do.call(method[1],list(X=tr$x,y=tr$y,graph=gr,...)))
+    cv.fl <- lapply(train,function(tr)do.call(method[1],list(X=tr$x,y=tr$y,graph=gr,...)))
   }
-  stopCluster(cl.cv)
+  #stopCluster(cl.cv)
   #cv.fl <- lapply(seq(nfold),function(i)do.call(method[1],list(X=cbind(1,train[[i]]$x),y=train[[i]]$y,graph=gr,...)))
 #  cv.fl <- foreach (i=seq(nfold),.packages = "genlasso") %dopar% do.call(method[1],list(X=train[[i]]$x,y=train[[i]]$y,graph=gr,...))
   print('finished running do.call(flasso,...)')
