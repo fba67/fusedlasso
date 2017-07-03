@@ -73,9 +73,9 @@ fusedlasso.main <- function(x,y,bin.cnt,edgs,gammas){#in parallel
     fl.res <- parSapply(cl,gammas,function(gamma){return(cv.fusedlasso(x,y,bin.cnt,method="fusedlasso",nfold=nfold,gr,gamma=gamma,maxsteps = maxsteps,minlam=my.minlam))})
     for(gamma.ctr in seq(length(gammas))){
 		  if(fl.res[,gamma.ctr]$bestsol$validationMSE < best.rss){
-				  best.rss <- fl.res[,gamma.ctr]$bestsol$validationMSE;
-				  gamma.best <- gammas[gamma.ctr];
-          fl.best <- fl.res[,gamma.ctr]
+			best.rss <- fl.res[,gamma.ctr]$bestsol$validationMSE;
+			gamma.best <- gammas[gamma.ctr];
+            fl.best <- fl.res[,gamma.ctr]
 		  }
     }
     best.gamma <- gamma.best
@@ -220,17 +220,41 @@ fusedlasso.main_ForLambdaInterpolation <- function(x,y,bin.cnt,edgs,gammas,inter
   cv.fl <- fl.res[,which(gammas == best.gamma)]
   total.gammas.len <- total.gammas.len + length(gammas)
   gammas <- seq(best.gamma/2,3/2*best.gamma,by=.01)
-  #gammas <- get.gammas(gammas,best.gamma)
   
+  #gammas <- get.gammas(gammas,best.gamma)
   print(paste('search.depth=',search.depth,sep=''))
   search.depth <- search.depth + 1
   if(length(gammas == 1) && gammas == best.gamma)
   {
-		  flag <- F
-		  print(c('gammas=',gammas,'best.gamma',best.gamma))
-		  print('single gamma set')
-		  bestGamma <- best.gamma
+	flag <- F
+	print(c('gammas=',gammas,'best.gamma',best.gamma))
+	print('single gamma set')
+	bestGamma <- best.gamma
+    stopCluster(cluster)
+    save(fl.res,file=paste(outPath,'fl.res.RData',sep=''))
+    return(list(cv.fl=cv.fl,gamma.best=bestGamma,best.lambda=lambda.best))
   }
+  ### If further search is required in gamma grid:
+  fl.res <- parSapply(cluster,gammas,function(gamma){return(cv.fusedlasso.interpolationOnLambdas(x,y,bin.cnt,method="fusedlasso",nfold=nfold,gr,intercept_mode,gamma=gamma,maxsteps = maxsteps,minlam=my.minlam))})
+  for(gamma.ctr in seq(length(gammas))){
+		  lambda.table.ordered <- fl.res[,gamma.ctr]$lambda.table.ordered
+		  cvm <- fl.res[,gamma.ctr]$cvm
+		  all.gammas.info[[gamma.ctr]] <- lambda.table.ordered;
+		  all.gammas <- c(all.gammas,rep(gammas[gamma.ctr],times=length(cvm)));
+		  lambda.idx <- which.min(cvm);
+		  if(cvm[lambda.idx] < best.rss){
+				  best.rss <- cvm[lambda.idx];
+				  gamma.best <- gammas[gamma.ctr];
+				  lambda.best <- lambda.table.ordered[2,lambda.idx]
+		  }
+		  all.lens <- c(all.lens,length(cvm));
+		  all.cvms <- c(all.cvms,cvm)
+		  cols <- rep('black',times=length(cvm))
+		  cols[which.min(cvm)] <- 'red'
+		  all.cols <- c(all.cols,cols)
+  }
+  bestGamma <- gamma.best
+  cv.fl <- fl.res[,which(gammas == best.gamma)]
   if(F){
   for(i in seq(length(all.gammas.info)))all.lambdas <- c(all.lambdas,all.gammas.info[[i]][2,])
   for(i in seq(length(all.gammas.info)))all.rss <- c(all.rss,all.gammas.info[[i]][3,])
@@ -258,131 +282,8 @@ fusedlasso.main_ForLambdaInterpolation <- function(x,y,bin.cnt,edgs,gammas,inter
   stopCluster(cluster)
   save(fl.res,file=paste(outPath,'fl.res.RData',sep=''))
   return(list(cv.fl=cv.fl,gamma.best=bestGamma,best.lambda=lambda.best))
-  print(class(fl.res))
-  err <- sapply(seq(ncol(fl.res)),function(i)fl.res[,i]$bestsol$validationMSE)
-  best.idx <- which.min(err)
-  err.best <- err[best.idx]
-  fl.best <- fl.res[,best.idx]
-  if(flag)
-  	bestGamma <- gammas[best.idx]
-  print(bestGamma)
-  x <- group.rescale(x,0,1,bin.cnt)
-  valid.lambda.range <- F#Initially it was True, but I don't want the following while loop to execute anymore, therefore I changed it to False
-  new.maxsteps <- maxsteps
-  while(valid.lambda.range){
-	  fl <- do.call("fusedlasso",list(X=cbind(1,x),y=y,graph=gr,gamma=bestGamma,maxsteps = new.maxsteps,minlam=my.minlam))
-  	  if(min(fl$lambda) < fl.best$bestsol$lambda && max(fl$lambda) > fl.best$bestsol$lambda){
-			  beta.optimal <- coef.genlasso(fl,fl.best$bestsol$lambda)$beta
-  			  inc.order.idx <- order(fl$lambda)
-			  beta.inc.ordered <- fl$beta[,inc.order.idx]
-			  valid.lambda.range <- F
-  			  optimal.lambda.idx <- findInterval(fl.best$bestsol$lambda,fl$lambda[inc.order.idx])
-	  }
-	  new.maxsteps <- 2*new.maxsteps
-  }
-  print('in fusedloass.main')
-  pred <- cbind(1,x) %*% beta.optimal
-  validationRMSE <- get.rss(pred,y) 
-  #bestsol <- list(lambda=fl.best$bestsol$lambda,beta=beta.inc.ordered[,optimal.lambda.idx],df=summary(fl)[optimal.lambda.idx,1],validationRMSE=validationRMSE,cv.beta.mat=fl.best$cv.beta.mat,cv.bestERR=err.best)
-  bestsol <- list(lambda=fl.best$bestsol$lambda,beta=beta.optimal,validationRMSE=validationRMSE,cv.beta.mat=fl.best$cv.beta.mat,cv.bestERR=err.best)
-  fl.best <- list(bestobj=fl,bestsol=bestsol)
-  return(list(cv.fl=fl.best,gamma.best=bestGamma,best.lambda=lambda.best))
 }
 
-fusedlasso.shuffling.par <- function(x,y,fl,shuffle.idx,bin.cnt,trial=20,percent=.8,cor.ret=T,rss.ret=T){
-  pkgTest("doSNOW")
-  pkgTest("genlasso")
-  #Shuffle the data "trials" times (in parallel)
-  if(is.null(shuffle.idx))
-    shuffle.idx <- foreach(trial = seq(trials),.combine = 'rbind') %dopar% sample(nrow(x))
-  trials <- nrow(shuffle.idx)
-  cluster = makeCluster(20)
-  registerDoSNOW(cluster)
-
-  gamma <- fl$gamma.best
-  hist.cnt <- ncol(x)/bin.cnt
-  partition <- foreach(trial = seq(trials),.export = "data.partition") %dopar% data.partition(x[shuffle.idx[trial,],],y[shuffle.idx[trial,]],percent)
-  
-  best.idx <- which(fl$cv.fl$bestobj$lambda==fl$cv.fl$bestsol$lambda)        
-  cv.fl <- foreach(trial = seq(trials),.packages = 'genlasso',.export = c("cv.fusedlasso","pkgTest")) %dopar%  
-    cv.fusedlasso(partition[[trial]]$train$x,partition[[trial]]$train$y,method="fusedlasso",edges=edgs,nfold=nfold,
-                  gamma = gamma,maxsteps = fl$cv.fl$bestobj$call$maxsteps)
-  if(cor.ret&rss.ret){
-    pred.fl <- foreach(i=seq(trials),.export = "predict.fl") %dopar% predict.fl(cv.fl[[i]]$bestsol,partition[[i]]$test$x)
-    RSS.fl <- foreach(i=seq(trials),.export = "get.rss",.combine = 'c') %dopar% get.rss(pred.fl[[i]],partition[[i]]$test$y)
-    correlation.fl <- foreach(i=seq(trials),.combine = 'c') %dopar% cor(partition[[i]]$test$y,pred.fl[[i]],method='spearman')
-    stopCluster(cluster)
-    return(list(cv.fl=cv.fl,rss=mean(RSS.fl),cor=mean(correlation.fl)))
-  }
-  else if(cor.ret){
-    pred.fl <- foreach(i=seq(trials),.export = "predict.fl") %dopar% predict.fl(cv.fl[[i]]$bestsol,partition[[i]]$test$x)
-    correlation.fl <- foreach(i=seq(trials),.combine = 'c') %dopar% cor(partition[[i]]$test$y,pred.fl[[i]],method='spearman')
-    stopCluster(cluster)
-    return(list(cv.fl=cv.fl,cor=mean(correlation.fl)))
-  }
-  else if(rss.ret){
-    pred.fl <- foreach(i=seq(trials),.export = "predict.fl") %dopar% predict.fl(cv.fl[[i]]$bestsol,partition[[i]]$test$x)
-    RSS.fl <- foreach(i=seq(trials),.export = "get.rss",.combine = 'c') %dopar% get.rss(pred.fl[[i]],partition[[i]]$test$y)
-    stopCluster(cluster)
-    return(list(cv.fl=cv.fl,rss=mean(RSS.fl)))
-  }
-  stopCluster(cluster)
-  return(list(cv.fl=cv.fl))
-}
-
-
-fusedlasso.shuffling <- function(x,y,fl,edgs,bin.cnt,shuffle.idx,trials=20,percent=.8,cor.ret=T,rss.ret=T){
-  pkgTest("genlasso")
-  print(bin.cnt)
-  library(parallel)
-  print('Done loading libraries.')
-  #Shuffle the data "trials" times (in parallel)
-  if(is.null(shuffle.idx))
-    shuffle.idx <- t(sapply(seq(trials),function(i)sample(nrow(x))))
-  trials <- nrow(shuffle.idx)
-	
-  gamma <- fl$gamma.best
-  hist.cnt <- ncol(x)/bin.cnt
-  partition <- sapply(seq(trials),function(trial)data.partition(as.matrix(x[shuffle.idx[trial,],]),y[shuffle.idx[trial,]],percent))
-  print("Running lapply")
-  
-  #cluster = makeCluster(20)
-  #registerDoSNOW(cluster)
-  cv.fl <- lapply(seq(trials), function(trial){print(trial)
-				  fusedlasso.main(partition[1,trial]$train$x,partition[1,trial]$train$y,bin.cnt,edgs,gamma)$cv.fl
-  })
-#  cv.fl <- lapply(seq(trials), function(trial){print(trial)
-#							      cv.fusedlasso(partition[1,trial]$train$x,partition[1,trial]$train$y,method="fusedlasso",fl$cv.fl$bestobj$call$graph,nfold=10,
-#												                  gamma = gamma,maxsteps = fl$cv.fl$bestobj$call$maxsteps)
-#})
-  #stopCluster(cluster)
-  save(cv.fl,partition,file='testErr.RData')
-  print("Done running lapply!")
-  print(c('length(cv.fl)',length(cv.fl)))
-  print(c('class(cv.fl[1]]$bestsol)',class(cv.fl[[1]]$bestsol)))
-  print(c('length(cv.fl[1]]$cv.fl$bestsol$beta)',length(cv.fl[[1]]$bestsol$beta)))
-  print(c('dim(partition)',dim(partition)))
-  print(c('dim(partition[1,1]$train$x)',dim(partition[1,1]$train$x)))
-  if(cor.ret&rss.ret){
-    pred.fl <- lapply(seq(trials),function(i) predict.fl(cv.fl[[i]]$bestsol,cbind(1,group.rescale(partition[2,i]$test$x,0,1,bin.cnt,min(min(partition[1,i]$train$x)),max(max(partition[1,i]$train$x))))))
-  	print(c('dim(pred.fl)',dim(pred.fl)))
-    RSS.fl <- sapply(seq(trials),function(i){print(i); get.rss(pred.fl[[i]],partition[2,i]$test$y)})
-    correlation.fl <- sapply(seq(trials),function(i) cor(partition[2,i]$test$y,pred.fl[[i]],method='spearman'))
-	correlation.fl.mean <- mean(unlist(correlation.fl))
-    return(list(cv.fl=cv.fl,rss=mean(RSS.fl),cor=correlation.fl.mean))
-  }##The rest of the cases must also be corrected for the group.rescaling
-  else if(cor.ret){
-    pred.fl <- sapply(seq(trials),function(i) predict.fl(cv.fl[[i]]$cv.fl$bestsol,cbind(1,partition[2,i]$test$x)))
-    correlation.fl <- sapply(seq(trials),function(i) cor(partition[2,i]$test$y,pred.fl[,i],method='spearman'))
-    return(list(cv.fl=cv.fl,cor=mean(correlation.fl)))
-  }
-  else if(rss.ret){
-    pred.fl <- sapply(seq(trials),function(i) predict.fl(cv.fl[[i]]$cv.fl$bestsol,cbind(1,partition[2,i]$test$x)))
-    RSS.fl <- sapply(seq(trials),function(i) get.rss(pred.fl[,i],partition[2,i]$test$y))
-    return(list(cv.fl=cv.fl,rss=mean(RSS.fl)))
-  }
-  return(list(cv.fl=cv.fl))
-}
 
 normalasso.shuffling <- function(x,y,bin.cnt,shuffle.idx,trials=20,percent=.8,cor.ret=T,rss.ret=T){
   pkgTest("glmnet")
@@ -421,43 +322,6 @@ normalasso.shuffling <- function(x,y,bin.cnt,shuffle.idx,trials=20,percent=.8,co
 }
 
 
-normalasso.shuffling.par <- function(x,y,bin.cnt,shuffle.idx,trial=20,percent=.8,cor.ret=T,rss.ret=T){
-  pkgTest("doSNOW")
-  pkgTest("glmnet")
-  #Shuffle the data "trials" times (in parallel)
-  if(is.null(shuffle.idx))
-    shuffle.idx <- foreach(trial = seq(trials),.combine = 'rbind') %dopar% sample(nrow(x))
-  trials <- nrow(shuffle.idx)
-
-  cluster = makeCluster(20)
-  registerDoSNOW(cluster)
-  hist.cnt <- ncol(x)/bin.cnt
-  partition <- foreach(trial = seq(trials),.export = "data.partition") %dopar% data.partition(as.matrix(x[shuffle.idx[trial,],]),y[shuffle.idx[trial,]],percent)
-  
-  cv.nl <- foreach(trial = seq(trials),.packages = "glmnet") %dopar% cv.glmnet(x=group.rescale(partition[[trial]]$train$x,0,1,bin.cnt),y=partition[[trial]]$train$y,parallel=T)
-  las.coefs <- foreach(trial = seq(trials),.combine = 'rbind') %dopar% coef(cv.nl[[trial]])[2:length(coef(cv.nl[[trial]]))]
-  if(cor.ret&rss.ret){
-    pred.nl <- foreach(i = seq(trials)) %dopar% predict(cv.nl[[i]],group.rescale(partition[[i]]$test$x,0,1,bin.cnt,min(min(partition[[trial]]$train$x)),max(max(partition[[trial]]$train$x))))
-    RSS.nl <- foreach(i=seq(trials),.export = "get.rss",.combine = 'c') %dopar% get.rss(pred.nl[[i]],partition[[i]]$test$y)
-    correlation.nl <- foreach(i=seq(trials),.combine = 'c') %dopar% round(cor(partition[[i]]$test$y,pred.nl[[i]],method='spearman'),2)
-    stopCluster(cluster)
-    return(list(cv.nl=cv.nl,rss=mean(RSS.nl),cor=mean(correlation.nl)))
-  }
-  else if(cor.ret){
-    pred.nl <- foreach(i = seq(trials)) %dopar% predict(cv.nl[[i]],partition[[i]]$test$x)
-    correlation.nl <- foreach(i=seq(trials),.combine = 'c') %dopar% round(cor(partition[[i]]$test$y,pred.nl[[i]],method='spearman'),2)
-    stopCluster(cluster)
-    return(list(cv.nl=cv.nl,cor=mean(correlation.nl)))
-  }
-  else if(rss.ret){
-    pred.nl <- foreach(i = seq(trials)) %dopar% predict(cv.nl[[i]],partition[[i]]$test$x)
-    RSS.nl <- foreach(i=seq(trials),.export = "get.rss",.combine = 'c') %dopar% get.rss(pred.nl[[i]],partition[[i]]$test$y)
-    stopCluster(cluster)
-    return(list(cv.nl=cv.nl,rss=mean(RSS.nl)))
-  }
-  stopCluster(cluster)
-  return(list(cv.nl=cv.nl))
-}
 
 plot.histone.coef <- function(beta,bin.cnt,feat.names,main.title,intercept_mode){
   pkgTest("gplots")

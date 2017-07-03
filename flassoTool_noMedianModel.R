@@ -7,6 +7,7 @@ outerCV_folds <- 5
 print(paste('nfold=',nfold))
 info <- vector(mode="character",length=3)
 args <- commandArgs(trailingOnly = T)
+#args <- c("BlMo_param_flasso_test.txt","T")
 #options(warn = -1)
 a <- length(args)
 params <- readLines(args[1])
@@ -127,6 +128,13 @@ for(p in seq(1,length(inPaths),2)){
     partition$test$x <- (partition$test$x - train.mean$x)/train.sd
     partition$test$y <- (partition$test$y - train.mean$y)
   }
+  else{
+    #train.group.min <- sapply(seq(graphComponents),function(i)min(min(partition$train$x[,seq((i-1)*bin.cnt+1,i*bin.cnt)])))
+    #train.group.max <- sapply(seq(graphComponents),function(i)max(max(partition$train$x[,seq((i-1)*bin.cnt+1,i*bin.cnt)])))
+    train.group.rescaled <- group.rescale(partition$train$x,0,1,bin.cnt)
+    partition$train$x <- train.group.rescaled$x
+    partition$test$x <- group.rescale(partition$test$x,0,1,bin.cnt,train.group.rescaled$min,train.group.rescaled$max)$x
+  }
   outer_CV_partitions <- get.outerCV.partitions(data.x,data.y,n.folds=outerCV_folds)
   print(gamma)
   print(dim(partition$train$x))
@@ -134,6 +142,7 @@ for(p in seq(1,length(inPaths),2)){
   for(i in seq(-5,5)){
     gammas <- c(gammas,(10^i))
   }
+#  gammas <- c(.5,1,2)
   fl <- fusedlasso.main_ForLambdaInterpolation(partition$train$x,partition$train$y,bin.cnt,edgs,gammas,intercept_mode)
 
   #################################################################################
@@ -231,9 +240,9 @@ for(p in seq(1,length(inPaths),2)){
   ##########################################################################################
   test.y <- partition$test$y
   if(intercept_mode){
-    test.x <- group.rescale(partition$test$x,0,1,bin.cnt,min(min(partition$train$x)),max(max(partition$train$x)))
-    train.x <- group.rescale(partition$train$x,0,1,bin.cnt,min(min(partition$train$x)),max(max(partition$train$x)))
-    entire.x <- group.rescale(rbind(partition$train$x,partition$test$x),0,1,bin.cnt,min(min(partition$train$x)),max(max(partition$train$x)))
+    test.x <- partition$test$x
+    train.x <- partition$train$x
+    entire.x <- rbind(partition$train$x,partition$test$x)
   }else{
     test.x <- partition$test$x
     train.x <- partition$train$x
@@ -244,6 +253,7 @@ for(p in seq(1,length(inPaths),2)){
   ####################################################################
 
   plot.scatter(partition$test$x,partition$test$y,cv.beta.mat.nl$best.nl,0,ylab,main=paste('nl',fileName,sep='_'),is_fl=F,intercept_mode,xlab='prediction')
+  dev.off()
   print('done test data scatter plots')
   ##########################################################################################
   #####################      scatter plots train data      ##################################

@@ -36,17 +36,20 @@ rescale <- function(x,a,b,featureTypes){
 group.rescale <- function(x,a,b,bin.cnt,group.min=NULL,group.max=NULL){
   x.rescaled <- matrix(NA,nrow=nrow(x),ncol=ncol(x))
   groups.cnt <- ncol(x)/bin.cnt
+  if(is.null(group.min) && is.null(group.max)){
+    for(i in seq(groups.cnt)){
+      group <- x[,seq((i-1)*bin.cnt+1,i*bin.cnt,1)]
+      group.min <- c(group.min,min(min(group)))
+      group.max <- c(group.max,max(max(group)))
+    }
+  }
+	
   for(i in seq(groups.cnt)){
     group <- x[,seq((i-1)*bin.cnt+1,i*bin.cnt,1)]
-    if(is.null(group.min) && is.null(group.max)){
-      group.min <- min(min(group))
-      group.max <- max(max(group))
-	}
     #x.rescaled[,seq((i-1)*bin.cnt+1,i*bin.cnt,1)] <- ((group-t(replicate(n=nrow(group),group.min)))*(b-a)/(group.max-group.min)+a)
-    x.rescaled[,seq((i-1)*bin.cnt+1,i*bin.cnt,1)] <- ((group-(matrix(group.min,nrow=nrow(group),ncol=ncol(group))))*(b-a)/(group.max-group.min)+a)
-    
+    x.rescaled[,seq((i-1)*bin.cnt+1,i*bin.cnt,1)] <- ((group-(matrix(group.min[i],nrow=nrow(group),ncol=ncol(group))))*(b-a)/(group.max[i]-group.min[i])+a)
   }
-  return(x.rescaled)
+  return(list(x=x.rescaled,min=group.min,max=group.max))
 }
 
 rescale2 <- function(x,a,b,featureTypes){
@@ -191,7 +194,7 @@ cv.fusedlasso <- function(x,y,bin.cnt,method=c("fusedlasso","fusedlasso1d","fuse
   pkgTest("parallel")
   n <- nrow(x)
   p <- ncol(x)
-  x <- group.rescale(x,0,1,bin.cnt)
+  x <- group.rescale(x,0,1,bin.cnt)$x
   foldsz <- floor(n/nfold)
   if(foldsz<2){
     print(paste('Number of fold for CV (',nfold,') is too large with respect to the training size... Setting it to 2',sep=''))
@@ -240,8 +243,8 @@ cv.fusedlasso.interpolationOnLambdas <- function(x,y,bin.cnt,method=c("fusedlass
   pkgTest("parallel")
   n <- nrow(x)
   p <- ncol(x)
-  if(intercept_mode)
-    x <- group.rescale(x,0,1,bin.cnt)
+#  if(intercept_mode)
+#    x <- group.rescale(x,0,1,bin.cnt)$x
   foldsz <- floor(n/nfold)
   if(foldsz<2){
     print(paste('Number of fold for CV (',nfold,') is too large with respect to the training size... Setting it to 2',sep=''))
