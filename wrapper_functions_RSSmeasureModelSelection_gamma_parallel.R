@@ -197,7 +197,7 @@ fusedlasso.main_ForLambdaInterpolation <- function(x,y,bin.cnt,edgs,gammas,inter
   total.gammas.len <- 0
   search.depth <- 1
   cluster <- makeCluster(min(length(gammas),max((detectCores() - 1),1)))#,"FORK")
-  clusterExport(cluster,list("cv.beta.matrix.fl","cv.fusedlasso.interpolationOnLambdas","x","y","bin.cnt","nfold","gammas","maxsteps","my.minlam","pkgTest","group.rescale","gr"),envir=environment())
+  clusterExport(cluster,list("cv.beta.matrix.fl","cv.fusedlasso.interpolationOnLambdas","x","y","bin.cnt","nfold","gammas","maxsteps","my.minlam","pkgTest","group.rescale","gr","intercept_mode"),envir=environment())
   fl.res <- parSapply(cluster,gammas,function(gamma){return(cv.fusedlasso.interpolationOnLambdas(x,y,bin.cnt,method="fusedlasso",nfold=nfold,gr,intercept_mode,gamma=gamma,maxsteps = maxsteps,minlam=my.minlam))})
   for(gamma.ctr in seq(length(gammas))){
 		  lambda.table.ordered <- fl.res[,gamma.ctr]$lambda.table.ordered
@@ -205,6 +205,7 @@ fusedlasso.main_ForLambdaInterpolation <- function(x,y,bin.cnt,edgs,gammas,inter
 		  all.gammas.info[[gamma.ctr]] <- lambda.table.ordered;
 		  all.gammas <- c(all.gammas,rep(gammas[gamma.ctr],times=length(cvm)));
 		  lambda.idx <- which.min(cvm);
+          print(paste(gammas[gamma.ctr],cvm[lambda.idx]))
 		  if(cvm[lambda.idx] < best.rss){
 				  best.rss <- cvm[lambda.idx];
 				  gamma.best <- gammas[gamma.ctr];
@@ -219,7 +220,7 @@ fusedlasso.main_ForLambdaInterpolation <- function(x,y,bin.cnt,edgs,gammas,inter
   best.gamma <- gamma.best
   cv.fl <- fl.res[,which(gammas == best.gamma)]
   total.gammas.len <- total.gammas.len + length(gammas)
-  gammas <- seq(best.gamma/2,3/2*best.gamma,by=.01)
+  gammas <- seq(best.gamma/2,3/2*best.gamma,length=10)
   
   #gammas <- get.gammas(gammas,best.gamma)
   print(paste('search.depth=',search.depth,sep=''))
@@ -229,10 +230,9 @@ fusedlasso.main_ForLambdaInterpolation <- function(x,y,bin.cnt,edgs,gammas,inter
 	flag <- F
 	print(c('gammas=',gammas,'best.gamma',best.gamma))
 	print('single gamma set')
-	bestGamma <- best.gamma
     stopCluster(cluster)
     save(fl.res,file=paste(outPath,'fl.res.RData',sep=''))
-    return(list(cv.fl=cv.fl,gamma.best=bestGamma,best.lambda=lambda.best))
+    return(list(cv.fl=cv.fl,gamma.best=best.gamma,best.lambda=lambda.best))
   }
   ### If further search is required in gamma grid:
   fl.res <- parSapply(cluster,gammas,function(gamma){return(cv.fusedlasso.interpolationOnLambdas(x,y,bin.cnt,method="fusedlasso",nfold=nfold,gr,intercept_mode,gamma=gamma,maxsteps = maxsteps,minlam=my.minlam))})
@@ -253,7 +253,7 @@ fusedlasso.main_ForLambdaInterpolation <- function(x,y,bin.cnt,edgs,gammas,inter
 		  cols[which.min(cvm)] <- 'red'
 		  all.cols <- c(all.cols,cols)
   }
-  bestGamma <- gamma.best
+  best.gamma <- gamma.best
   cv.fl <- fl.res[,which(gammas == best.gamma)]
   if(F){
   for(i in seq(length(all.gammas.info)))all.lambdas <- c(all.lambdas,all.gammas.info[[i]][2,])
@@ -281,7 +281,7 @@ fusedlasso.main_ForLambdaInterpolation <- function(x,y,bin.cnt,edgs,gammas,inter
   }
   stopCluster(cluster)
   save(fl.res,file=paste(outPath,'fl.res.RData',sep=''))
-  return(list(cv.fl=cv.fl,gamma.best=bestGamma,best.lambda=lambda.best))
+  return(list(cv.fl=cv.fl,gamma.best=best.gamma,best.lambda=lambda.best))
 }
 
 
