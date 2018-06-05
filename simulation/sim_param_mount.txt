@@ -1,0 +1,12 @@
+Dataset (Provide the path to the datasets)
+X = ~/mountFromServer/HistonProj/histoneMod/histoneData/wigFiles/spltByChr/Rscript/flasso/flassoTool/simulation/fl_sim_features.txt
+Y = ~/mountFromServer/HistonProj/histoneMod/histoneData/wigFiles/spltByChr/Rscript/flasso/flassoTool/simulation/fl_sim_response.txt
+Model Optimization
+percent = 0.8
+nfold = 5
+intercept mode = T
+Feature Group Names
+A
+B
+Output (Provide the path to the location where the results should be saved)
+~/mountFromServer/HistonProj/histoneMod/histoneData/wigFiles/spltByChr/Rscript/flasso/flassoTool/simulation/sim/
