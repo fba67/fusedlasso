@@ -90,3 +90,36 @@ plot(colMeans(d[seq(301, 600), ]), main= "X", ylab= "avg. X[301:600, ]", pch= 20
 plot(y[seq(301, 600)], main= "Y", pch= 20)
 dev.off()
 
+####################################################
+####################################################
+print("simulatioin 4")
+#set.seed(1); 
+d <- matrix(NA, ncol= 40, nrow= N)
+
+segment.size <- 4
+### Generate indices for segments of size segment.size
+for(i in seq(10))
+  q[[i]] <- seq((i-1) * segment.size + 1, i * segment.size)
+
+### Assign ~0 to every other segment
+d[, seq(20)] <- rnorm(N * 20, mean= 10, sd= 0.01)
+d[, seq(21, 40)] <- rnorm(N * 20, mean= -10, sd= 0.01)
+for(i in seq(1, 10, by= 2)){
+  d[seq(N), q[[i]]] <- rnorm(segment.size * N, mean= 0, sd= .01)
+}
+
+
+y <- rowSums(d[, q[[1]]]) * 2 + rowSums(d[, q[[2]]]) * 2 + rowSums(d[, q[[4]]]) * 2 +
+  rowSums(d[, q[[7]]]) * 3 + rowSums(d[q[[8]],]) * 3 + rowSums(d[q[[9]],]) * 3 + rnorm(N, mean= 0, sd= .01)
+
+write.table(d, "fl_sim_features_4.txt", quote= F, row.names= F, col.names= F)
+writeLines(as.character(y), "fl_sim_response_4.txt")
+
+pdf("simulation_4.pdf")
+par(mfrow= c(2,2))
+plot(colMeans(d[seq(300), ]), main= "X", ylab= "avg. X[1:300, ]", pch= 20)
+plot(y[seq(300)], main= "Y", pch= 20)
+plot(colMeans(d[seq(301, 600), ]), main= "X", ylab= "avg. X[301:600, ]", pch= 20)
+plot(y[seq(301, 600)], main= "Y", pch= 20)
+dev.off()
+
