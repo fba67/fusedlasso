@@ -203,8 +203,8 @@ data.cov2 <- cov(fl$cv.fl$bestobj$X[, c(seq(82, 121))])
 library(MASS)
 
 ### Generate indices for segments of size segment.size
-d1 <- matrix(mvrnorm(N * 40, mu= data.mean[seq(40)], Sigma= data.cov1), ncol= 40, nrow= N, byrow=T)
-d2 <- matrix(mvrnorm(N * 40, mu= data.mean[seq(41, 80)], Sigma= data.cov2), ncol= 40, nrow= N, byrow=T)
+d1 <- mvrnorm(N, mu= data.mean[seq(40)], Sigma= data.cov1)
+d2 <- mvrnorm(N, mu= data.mean[seq(41, 80)], Sigma= data.cov2)
 d <- cbind(d1, d2)
 ### Assign ~0 to every other segment
 data.x <- d
