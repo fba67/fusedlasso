@@ -203,16 +203,24 @@ data.cov2 <- cov(fl$cv.fl$bestobj$X[, c(seq(82, 121))])
 library(MASS)
 
 ### Generate indices for segments of size segment.size
-d1 <- mvrnorm(N, mu= data.mean[seq(40)], Sigma= data.cov1)
-d2 <- mvrnorm(N, mu= data.mean[seq(41, 80)], Sigma= data.cov2)
+d1_active <- mvrnorm(N/2, mu= data.mean[seq(40)], Sigma= data.cov1)
+d1_inactive <- mvrnorm(N/2, mu= data.mean[seq(40)] / 5, Sigma= data.cov1)
+d2_active <- mvrnorm(N/2, mu= data.mean[seq(41, 80)], Sigma= data.cov2)
+d2_inactive <- mvrnorm(N/2, mu= data.mean[seq(41, 80)] / 5, Sigma= data.cov2)
+d1 <- rbind(d1_active, d1_inactive)
+d2 <- rbind(d2_active, d2_inactive)
 d <- cbind(d1, d2)
 ### Assign ~0 to every other segment
 data.x <- d
 print(dim(d))
 
-y <- rowSums(data.x[, seq(15, 30)]) - rowSums(data.x[, seq(41, 45)]) - rowSums(data.x[, seq(50, 80)]) + 
- rnorm(N, mean= 0, sd= .01)
+y_active <- rowSums(d1_active[, seq(19, 30)]) - rowSums(d2_active[, seq(18, 25)]) + 
+ rnorm(N / 2, mean= 0, sd= .01)
 
+y_inactive <- rowSums(d1_inactive[, seq(19, 30)]) - rowSums(d2_inactive[, seq(18, 25)]) + 
+ rnorm(N / 2, mean= 0, sd= .01)
+
+y <- c(y_active, y_inactive)
 write.table(d, "fl_sim_features_7.txt", quote= F, row.names= F, col.names= F)
 writeLines(as.character(y), "fl_sim_response_7.txt")
 
