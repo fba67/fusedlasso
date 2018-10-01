@@ -150,9 +150,9 @@ cv.beta.matrix.fl <- function(cv.fl,opt.lambda){
     hit <- findInterval(opt.lambda,fl$lambda[inc.ord])
     if(hit == 0)
       hit <- 1
-      beta.mat[i,] <- fl$beta[,inc.ord[hit]]
-      i <- i + 1
-    }
+    beta.mat[i,] <- fl$beta[,inc.ord[hit]]
+    i <- i + 1
+  }
   return(beta.mat)
 }
 
@@ -272,11 +272,11 @@ cv.fusedlasso.interpolationOnLambdas <- function(x,y,bin.cnt,method=c("fusedlass
   lambda.table <- NULL
   for(fl in cv.fl){
 	  lambda.cnt <- ncol(fl$fit)
-  if(intercept_mode){
-    predictions <- sapply(1:lambda.cnt,function(i) return(as.matrix(cbind(1,validation[[ctr]]$x)) %*% fl$beta[,i]))
-  }else{
-    predictions <- sapply(1:lambda.cnt,function(i) return(as.matrix(validation[[ctr]]$x) %*% fl$beta[,i]))
-  }
+    if(intercept_mode){
+      predictions <- sapply(1:lambda.cnt,function(i) return(as.matrix(cbind(1,validation[[ctr]]$x)) %*% fl$beta[,i]))
+    }else{
+      predictions <- sapply(1:lambda.cnt,function(i) return(as.matrix(validation[[ctr]]$x) %*% fl$beta[,i]))
+    }
 	  mses[[ctr]] <- t(sapply(1:lambda.cnt,function(i) return(1/length(predictions[,i])*sum((predictions[,i]-validation[[ctr]]$y)^2))))
 	  lambda.table <- cbind(lambda.table,rbind(rep(ctr,times = lambda.cnt),fl$lambda,mses[[ctr]]))
     ctr <- ctr + 1
@@ -294,28 +294,39 @@ cv.fusedlasso.interpolationOnLambdas <- function(x,y,bin.cnt,method=c("fusedlass
       hit <- findInterval(lambda.table.ordered[2,i],lambda.table.ordered[2,hit.idx])[1];
       if(hit==0){ # the lambda is smaller than the range of lambdas searched in fold #j
   		  hit <- hit.idx[1]
-  	   all.cv.rss[j,i] <- lambda.table.ordered[3,hit]
+  	    all.cv.rss[j,i] <- lambda.table.ordered[3,hit]
       }else{
-#		  ord.inc <- order(cv.fl[[j]]$lambda)
-		  #beta.interpolated <- beta.interpolate(lambda.table.ordered[2,i],cv.fl[[j]]$lambda[ord.inc],cv.fl[[j]]$beta[,ord.inc])
-	  	print(class(cv.fl[[j]]))
-		  print(class(lambda.table.ordered[2,i]))
-	  	beta.interpolated <- coef.genlasso(cv.fl[[j]],lambda.table.ordered[2,i])$beta
-		  all.beta.interpolated <- cbind(all.beta.interpolated,beta.interpolated)
+  #		  ord.inc <- order(cv.fl[[j]]$lambda)
+  		  #beta.interpolated <- beta.interpolate(lambda.table.ordered[2,i],cv.fl[[j]]$lambda[ord.inc],cv.fl[[j]]$beta[,ord.inc])
+  	  	print(class(cv.fl[[j]]))
+  		  print(class(lambda.table.ordered[2,i]))
+  	  	beta.interpolated <- coef.genlasso(cv.fl[[j]],lambda.table.ordered[2,i])$beta
+  		  all.beta.interpolated <- cbind(all.beta.interpolated,beta.interpolated)
 
 
-#		  pred <- cv.fl[[j]]$call$X %*% beta.interpolated
-          if(intercept_mode){
-		    pred <- as.matrix(cbind(1,validation[[j]]$x)) %*% beta.interpolated
-          }else{
-		    pred <- as.matrix(validation[[j]]$x) %*% beta.interpolated
-          }
-		  #all.cv.rss[j,i] <- lambda.table.ordered[3,hit.idx[hit]]
-		  all.cv.rss[j,i] <- 1/length(pred)*sum((pred-validation[[j]]$y)^2)
-		  #all.cv.rss[j,i] <- get.rss(cv.fl[[j]]$call$y,pred)
+  #		  pred <- cv.fl[[j]]$call$X %*% beta.interpolated
+        if(intercept_mode){
+    	    pred <- as.matrix(cbind(1,validation[[j]]$x)) %*% beta.interpolated
+        }else{
+  	      pred <- as.matrix(validation[[j]]$x) %*% beta.interpolated
+        }
+  		  #all.cv.rss[j,i] <- lambda.table.ordered[3,hit.idx[hit]]
+  		  all.cv.rss[j,i] <- 1/length(pred)*sum((pred-validation[[j]]$y)^2)
+  		  #all.cv.rss[j,i] <- get.rss(cv.fl[[j]]$call$y,pred)
       }
     }
-	}
+  }
+  
+  ### A nice plot that illustrates the beta values stored in all.beta.interpolated
+  if(F){
+    curr_gamma <- eval(cv.fl[[1]]$call$gamma)
+    X11();
+    cols= rainbow(ncol(all.beta.interpolated));
+    plot(all.beta.interpolated[-1, 1], col= cols[1], ylim = range(all.beta.interpolated[-1, ]), type="l", main= paste("gamma_", curr_gamma, sep= ""));
+    for(beta.inter in seq(2, ncol(all.beta.interpolated))) lines(all.beta.interpolated[-1, beta.inter], col= cols[beta.inter])
+    ### End of plot
+  }
+  
   cvm <- colMeans(all.cv.rss)
   #plot(log2(cvm+1),type='l',col='blue',main=cv.fl[[1]]$call$gamma)
   lambda.min.idx <- which.min(cvm)[1]

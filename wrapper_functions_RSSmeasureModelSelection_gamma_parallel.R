@@ -1,4 +1,4 @@
-source('UtilityFunctions_sequentialCV.R')
+#source('UtilityFunctions_sequentialCV.R')
 get.outerCV.partitions <-function(x,y,n.folds=10){
   fold.size <- ceiling(nrow(x)/n.folds)
   partitions <- list();
@@ -223,7 +223,7 @@ fusedlasso.main_ForLambdaInterpolation <- function(x,y,bin.cnt,edgs,gammas,inter
   gammas <- seq(best.gamma/2,3/2*best.gamma,length=10)
   
   #gammas <- get.gammas(gammas,best.gamma)
-  print(paste('search.depth=',search.depth,sep=''))
+  
   search.depth <- search.depth + 1
   if(length(gammas == 1) && gammas == best.gamma)
   {
@@ -235,6 +235,8 @@ fusedlasso.main_ForLambdaInterpolation <- function(x,y,bin.cnt,edgs,gammas,inter
     return(list(cv.fl=cv.fl,gamma.best=best.gamma,best.lambda=lambda.best))
   }
   ### If further search is required in gamma grid:
+  getsBetter <- F ## A boolean to determine whether the second grid is better
+  print(paste('search.depth=',search.depth,sep=''))
   fl.res <- parSapply(cluster,gammas,function(gamma){return(cv.fusedlasso.interpolationOnLambdas(x,y,bin.cnt,method="fusedlasso",nfold=nfold,gr,intercept_mode,gamma=gamma,maxsteps = maxsteps,minlam=my.minlam))})
   for(gamma.ctr in seq(length(gammas))){
 		  lambda.table.ordered <- fl.res[,gamma.ctr]$lambda.table.ordered
@@ -243,6 +245,7 @@ fusedlasso.main_ForLambdaInterpolation <- function(x,y,bin.cnt,edgs,gammas,inter
 		  all.gammas <- c(all.gammas,rep(gammas[gamma.ctr],times=length(cvm)));
 		  lambda.idx <- which.min(cvm);
 		  if(cvm[lambda.idx] < best.rss){
+		      getsBetter <- T
 				  best.rss <- cvm[lambda.idx];
 				  gamma.best <- gammas[gamma.ctr];
 				  lambda.best <- lambda.table.ordered[2,lambda.idx]
@@ -253,8 +256,10 @@ fusedlasso.main_ForLambdaInterpolation <- function(x,y,bin.cnt,edgs,gammas,inter
 		  cols[which.min(cvm)] <- 'red'
 		  all.cols <- c(all.cols,cols)
   }
-  best.gamma <- gamma.best
-  cv.fl <- fl.res[,which(gammas == best.gamma)]
+  if(getsBetter){
+    best.gamma <- gamma.best
+    cv.fl <- fl.res[,which(gammas == best.gamma)]
+  }
   if(F){
   for(i in seq(length(all.gammas.info)))all.lambdas <- c(all.lambdas,all.gammas.info[[i]][2,])
   for(i in seq(length(all.gammas.info)))all.rss <- c(all.rss,all.gammas.info[[i]][3,])
@@ -334,7 +339,7 @@ plot.histone.coef <- function(beta,bin.cnt,feat.names,main.title,intercept_mode)
      beta <- beta[2:length(beta)] #excluding intercept
   x <- beta
   x.matrix <- t(sapply(seq(floor(length(x)/bin.cnt)),function(i) x[seq((i-1)*bin.cnt+1,i*bin.cnt,1)]))
-    colnames(x.matrix) <- seq((-floor(bin.cnt)/2)+1,ceiling(bin.cnt/2),1)
+    colnames(x.matrix) <- seq((-ceiling(bin.cnt/2)+1),floor(bin.cnt/2),1)
     rownames(x.matrix) <- feat.names
 	if(nrow(x.matrix) == 1)
 		image(x.matrix)
@@ -557,7 +562,7 @@ accuracy.comparison <- function(x,y,fl.shuffling.obj,nl.shuffling.obj){
 
 
 
-plot.fl.accuracy.allmodels <- function(models,datasets,datasets.names,main=NA,percent=.8){
+plot.fl.accuracy.allmodels <- function(models,datasets,datasets.names,main=NA,percent=.8,intercept_mode){
   ###Input
   #####models: a list containing di_sense, di_antisense, con_sense,and con_antisense elements of cv.fl objects
   #####datasets: a list containing di_sense, di_antisense, con_sense,and con_antisense elements of datasets, dataset is itself  a list of x and y
@@ -571,8 +576,27 @@ plot.fl.accuracy.allmodels <- function(models,datasets,datasets.names,main=NA,pe
     for(model.idx in seq(length(datasets))){
 	    for(ds.idx in seq(length(datasets))){
 	      partition <- data.partition(x = datasets[[ds.idx]]$x,y = datasets[[ds.idx]]$y,percent)
-  		  partition$test$x <- group.rescale(partition$test$x,0,1,bin.cnt,min(min(partition$train$x)),max(max(partition$train$x)))
+          if(!intercept_mode){
+          #### Taken from fusedlasso paper:
+          ## We also assume that the predictors are standardized to have mean 0
+          ## and unit variance, and the outcome yi has mean 0. Hence we do
+          ## not need an intercept in model (1).
+          train.mean <- list(x=mean(partition$train$x),y=mean(partition$train$y))
+          train.sd <- sd(partition$train$x)
+          partition$train$x <- scale(partition$train$x)
+          partition$train$y <- scale(partition$train$y,scale=F)
+          partition$test$x <- (partition$test$x - train.mean$x)/train.sd
+          partition$test$y <- (partition$test$y - train.mean$y)
+          pred <- partition$test$x %*% models[[model.idx]]
+        }
+        else{
+          #train.group.min <- sapply(seq(graphComponents),function(i)min(min(partition$train$x[,seq((i-1)*bin.cnt+1,i*bin.cnt)])))
+          #train.group.max <- sapply(seq(graphComponents),function(i)max(max(partition$train$x[,seq((i-1)*bin.cnt+1,i*bin.cnt)])))
+          train.group.rescaled <- group.rescale(partition$train$x,0,1,bin.cnt)
+          partition$train$x <- train.group.rescaled$x
+          partition$test$x <- group.rescale(partition$test$x,0,1,bin.cnt,train.group.rescaled$min,train.group.rescaled$max)$x
           pred <- cbind(1,partition$test$x) %*% models[[model.idx]]
+        }
 	      #print(c('pred',pred))
 	      rss <- get.rss(pred,partition$test$y)
 	      correlations[model.idx,ds.idx] <- cor(partition$test$y,pred,method='spearman')
